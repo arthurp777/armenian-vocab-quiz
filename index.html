@@ -298,6 +298,32 @@
 
   .practice-actions { display: flex; gap: 10px; margin-top: 22px; }
 
+  /* ---------- Multiple choice (Quiz) ---------- */
+  .mc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    margin-top: 22px;
+  }
+  .mc-option {
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 12px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.12s ease;
+    word-break: break-word;
+  }
+  .mc-option:hover { border-color: var(--accent); }
+  .mc-option.correct { border-color: var(--correct); background: var(--correct-soft); }
+  .mc-option.wrong { border-color: var(--wrong); background: var(--wrong-soft); }
+  .mc-option.disabled { pointer-events: none; }
+
   /* ---------- Match game ---------- */
   .mc-option-match {
     background: var(--surface);
@@ -315,6 +341,14 @@
   .mc-option-match:hover { border-color: var(--accent); }
   .mc-option-match.selected { border-color: var(--accent); background: var(--accent-soft); }
   .mc-option-match.wrong-flash { border-color: var(--wrong); background: var(--wrong-soft); }
+  .mc-option-match.solved {
+    border-color: var(--correct-soft);
+    background: var(--correct-soft);
+    color: var(--correct);
+    cursor: default;
+    opacity: 0.7;
+  }
+  .mc-option-match.solved::after { content: " ✓"; }
 
   @media (max-width: 460px) {
     .subtitle-word { font-size: 28px; }
@@ -626,11 +660,15 @@ function renderChoiceStep(word) {
 
   const grid = document.getElementById("choiceGrid");
   const feedback = document.getElementById("feedback");
+  let answered = false;
   options.forEach(opt => {
     const btn = document.createElement("div");
     btn.className = "mc-option";
     btn.textContent = opt;
     btn.addEventListener("click", async () => {
+      if (answered) return;
+      answered = true;
+
       const correct = opt === correctAnswer;
       document.querySelectorAll(".mc-option").forEach(o => {
         o.classList.add("disabled");
@@ -1027,32 +1065,34 @@ function drawMatchGrid(onComplete) {
   if (!grid) return;
   grid.innerHTML = "";
 
+  // Shuffle order is decided once per round and cached on matchState, so the
+  // layout stays stable as pairs get solved instead of jumping around.
+  if (!matchState.shuffledEn) matchState.shuffledEn = [...matchState.words].sort(() => Math.random() - 0.5);
+  if (!matchState.shuffledHy) matchState.shuffledHy = [...matchState.words].sort(() => Math.random() - 0.5);
+
   const enCol = document.createElement("div");
   enCol.style.display = "flex"; enCol.style.flexDirection = "column"; enCol.style.gap = "8px";
   const hyCol = document.createElement("div");
   hyCol.style.display = "flex"; hyCol.style.flexDirection = "column"; hyCol.style.gap = "8px";
 
-  const shuffledEn = [...matchState.words].sort(() => Math.random() - 0.5);
-  const shuffledHy = [...matchState.words].sort(() => Math.random() - 0.5);
-
-  shuffledEn.forEach(w => {
-    if (matchState.matchedIds.has(w.id)) return;
+  matchState.shuffledEn.forEach(w => {
+    const solved = matchState.matchedIds.has(w.id);
     const cell = document.createElement("div");
-    cell.className = "mc-option-match";
+    cell.className = "mc-option-match" + (solved ? " solved" : "");
     cell.textContent = w.english;
     cell.dataset.id = w.id;
-    cell.addEventListener("click", () => handleMatchClick(w.id, "en", cell, onComplete));
+    if (!solved) cell.addEventListener("click", () => handleMatchClick(w.id, "en", cell, onComplete));
     enCol.appendChild(cell);
   });
 
-  shuffledHy.forEach(w => {
-    if (matchState.matchedIds.has(w.id)) return;
+  matchState.shuffledHy.forEach(w => {
+    const solved = matchState.matchedIds.has(w.id);
     const cell = document.createElement("div");
-    cell.className = "mc-option-match";
+    cell.className = "mc-option-match" + (solved ? " solved" : "");
     cell.textContent = w.armenian;
     cell.style.fontFamily = "'Noto Sans Armenian', sans-serif";
     cell.dataset.id = w.id;
-    cell.addEventListener("click", () => handleMatchClick(w.id, "hy", cell, onComplete));
+    if (!solved) cell.addEventListener("click", () => handleMatchClick(w.id, "hy", cell, onComplete));
     hyCol.appendChild(cell);
   });
 
