@@ -515,15 +515,14 @@ async function renderStreak() {
 
 // ---------- Quiz rendering ----------
 function pickQuestionType(word) {
-  // New or struggling words (low box) get multiple choice; well-known words get typing
-  if ((word.box || 1) <= 2) return "mc";
-  return Math.random() < 0.15 ? "mc" : "type";
+  // Always require typing the answer, per user preference - typing reinforces recall better than picking
+  return "type";
 }
 
 function buildDistractors(correctWord, pool, count = 3) {
-  const others = pool.filter(w => w.id !== correctWord.id && w.armenian !== correctWord.armenian);
+  const others = pool.filter(w => w.id !== correctWord.id && w.english.toLowerCase() !== correctWord.english.toLowerCase());
   const shuffled = others.sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count).map(w => w.armenian);
+  return shuffled.slice(0, count).map(w => w.english);
 }
 
 async function loadQueue() {
