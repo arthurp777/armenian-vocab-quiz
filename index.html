@@ -289,33 +289,73 @@
 
   .practice-actions { display: flex; gap: 10px; margin-top: 22px; }
 
+  /* ---------- Match game ---------- */
+  .mc-option-match {
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    word-break: break-word;
+  }
+  .mc-option-match:hover { border-color: var(--accent); }
+  .mc-option-match.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .mc-option-match.wrong-flash { border-color: var(--wrong); background: var(--wrong-soft); }
+
   @media (max-width: 460px) {
     .subtitle-word { font-size: 28px; }
     .quiz-card { padding: 40px 22px 30px; }
     .tabs { gap: 14px; }
+    .stats-row { flex-wrap: wrap; }
+    .stat-card { flex: 1 1 calc(50% - 1px); }
+    .stat-card:nth-child(3) { border-left: 1px solid var(--line); }
   }
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="header">
-    <div class="logo">reruns</div>
-    <div class="streak-line"><span class="count" id="streakCount">0</span> day series</div>
+  <div id="loginScreen" style="display:none;">
+    <div class="quiz-card" style="padding:40px 32px;">
+      <div class="logo" style="margin-bottom:24px; text-align:center;">reruns</div>
+      <label style="font-size:12px; color:var(--ink-faint); font-weight:600; display:block; margin-bottom:6px;">Email</label>
+      <input type="email" class="search-input" id="loginEmail" style="margin-bottom:14px;" autocomplete="username" />
+      <label style="font-size:12px; color:var(--ink-faint); font-weight:600; display:block; margin-bottom:6px;">Password</label>
+      <input type="password" class="search-input" id="loginPassword" style="margin-bottom:18px;" autocomplete="current-password" />
+      <button class="btn btn-accent btn-block" id="loginBtn">Sign in</button>
+      <div id="loginError" style="color:var(--wrong); font-size:12.5px; margin-top:12px; text-align:center;"></div>
+    </div>
   </div>
 
-  <div class="episode-strip" id="episodeStrip"></div>
+  <div id="mainApp" style="display:none;">
+    <div class="header">
+      <div class="logo">reruns</div>
+      <div style="display:flex; align-items:center; gap:14px;">
+        <div class="streak-line"><span class="count" id="streakCount">0</span> day series</div>
+        <span id="logoutBtn" style="font-size:12px; color:var(--ink-faint); cursor:pointer; font-weight:600;">Sign out</span>
+      </div>
+    </div>
 
-  <div class="tabs">
-    <div class="tab active" data-tab="quiz">Quiz</div>
-    <div class="tab" data-tab="practice">Practice</div>
-    <div class="tab" data-tab="words">Words</div>
-    <div class="tab" data-tab="import">Import</div>
+    <div class="episode-strip" id="episodeStrip"></div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="quiz">Quiz</div>
+      <div class="tab" data-tab="practice">Practice</div>
+      <div class="tab" data-tab="match">Match</div>
+      <div class="tab" data-tab="words">Words</div>
+      <div class="tab" data-tab="import">Import</div>
+    </div>
+
+    <div id="quizPanel"></div>
+    <div id="practicePanel" style="display:none;"></div>
+    <div id="matchPanel" style="display:none;"></div>
+    <div id="wordsPanel" style="display:none;"></div>
+    <div id="importPanel" style="display:none;"></div>
   </div>
-
-  <div id="quizPanel"></div>
-  <div id="practicePanel" style="display:none;"></div>
-  <div id="wordsPanel" style="display:none;"></div>
-  <div id="importPanel" style="display:none;"></div>
 </div>
 
 <script type="module">
@@ -324,6 +364,9 @@ import {
   getFirestore, collection, getDocs, doc, addDoc, setDoc, getDoc,
   updateDoc, deleteDoc, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import {
+  getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 // ===== CONFIG =====
 const firebaseConfig = {
@@ -338,6 +381,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
 const wordsRef = collection(db, "words");
 
 const META_DOC_ID = "streak_meta";
@@ -397,9 +441,10 @@ async function updateWordAfterAnswer(word, correct) {
   const ref = doc(db, "words", word.id);
   let newBox = word.box || 1;
   let newCorrectStreak = word.correctStreak || 0;
+  let newFailCount = word.failCount || 0;
 
   if (correct) { newBox = Math.min(5, newBox + 1); newCorrectStreak += 1; }
-  else { newBox = 1; newCorrectStreak = 0; }
+  else { newBox = 1; newCorrectStreak = 0; newFailCount += 1; }
 
   const days = boxIntervalDays(newBox);
   const next = new Date();
@@ -408,9 +453,17 @@ async function updateWordAfterAnswer(word, correct) {
   await updateDoc(ref, {
     box: newBox,
     correctStreak: newCorrectStreak,
+    failCount: newFailCount,
     lastReviewed: Timestamp.fromDate(new Date()),
     nextReview: Timestamp.fromDate(next)
   });
+}
+
+// A "leech" is a word that keeps getting forgotten - useful to surface separately
+// since spaced repetition alone won't fix a word that's genuinely not sticking.
+const LEECH_THRESHOLD = 3;
+function isLeech(word) {
+  return (word.failCount || 0) >= LEECH_THRESHOLD;
 }
 
 // ---------- State ----------
@@ -418,13 +471,16 @@ let allWords = [];
 let dueQueue = [];
 let currentIndex = 0;
 let sessionDone = 0;
+let sessionPlan = [];
+let planIndex = 0;
 
 const quizPanel = document.getElementById("quizPanel");
 const practicePanel = document.getElementById("practicePanel");
+const matchPanel = document.getElementById("matchPanel");
 const wordsPanel = document.getElementById("wordsPanel");
 const importPanel = document.getElementById("importPanel");
 
-const panels = { quiz: quizPanel, practice: practicePanel, words: wordsPanel, import: importPanel };
+const panels = { quiz: quizPanel, practice: practicePanel, match: matchPanel, words: wordsPanel, import: importPanel };
 
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
@@ -435,6 +491,7 @@ document.querySelectorAll(".tab").forEach(tab => {
     if (target === "words") renderWordsPanel();
     if (target === "import") renderImportPanel();
     if (target === "practice") renderPracticeList();
+    if (target === "match") renderMatchGame();
   });
 });
 
@@ -462,6 +519,34 @@ async function loadQueue() {
   dueQueue = allWords.filter(isDue).sort(() => Math.random() - 0.5);
   sessionDone = 0;
   currentIndex = 0;
+  sessionPlan = buildSessionPlan(dueQueue);
+  planIndex = 0;
+}
+
+// Builds the day's session as a sequence of steps so the quiz feels mixed rather
+// than repeating the same question format for every word in a row.
+// Steps are either { type: "word", word, mode } or { type: "match", words }.
+function buildSessionPlan(words) {
+  const plan = [];
+  let pool = [...words];
+  let sinceLastMatch = 0;
+
+  while (pool.length > 0) {
+    // Every ~5 words, if there's enough left, insert a Match round instead of single-word questions
+    if (sinceLastMatch >= 5 && pool.length >= 4) {
+      const batchSize = Math.min(4, pool.length);
+      const batch = pool.slice(0, batchSize);
+      pool = pool.slice(batchSize);
+      plan.push({ type: "match", words: batch });
+      sinceLastMatch = 0;
+      continue;
+    }
+    const word = pool.shift();
+    const mode = Math.random() < 0.5 ? "type" : "flip";
+    plan.push({ type: "word", word, mode });
+    sinceLastMatch++;
+  }
+  return plan;
 }
 
 function renderEmptyState(container, message, sub) {
@@ -480,7 +565,7 @@ async function renderQuiz() {
     renderEmptyState(quizPanel, "No words yet", "Translate something English → Armenian on translate.google.com with the extension installed, or paste your phone history in the Import tab.");
     return;
   }
-  if (currentIndex >= dueQueue.length) {
+  if (planIndex >= sessionPlan.length) {
     if (sessionDone > 0) { await recordSessionComplete(); await renderStreak(); }
     renderEmptyState(
       quizPanel,
@@ -492,28 +577,148 @@ async function renderQuiz() {
     return;
   }
 
-  const word = dueQueue[currentIndex];
+  const step = sessionPlan[planIndex];
+  const stepsRemaining = sessionPlan.length - planIndex;
+
+  if (step.type === "match") {
+    renderQuizMatchRound(step.words, stepsRemaining);
+    return;
+  }
+
+  const { word, mode } = step;
+  const direction = Math.random() < 0.5 ? "hy-to-en" : "en-to-hy";
+
+  if (mode === "flip") {
+    renderFlipStep(word, direction, stepsRemaining);
+  } else {
+    renderTypeStep(word, direction, stepsRemaining);
+  }
+}
+
+function advanceSession() {
+  sessionDone++;
+  planIndex++;
+  renderQuiz();
+}
+
+function renderTypeStep(word, direction, stepsRemaining) {
+  const promptWord = direction === "hy-to-en" ? word.armenian : word.english;
+  const promptFont = direction === "hy-to-en" ? "font-family:'Noto Sans Armenian',sans-serif;" : "";
+  const directionLabel = direction === "hy-to-en" ? "type the English translation" : "type the Armenian translation";
+
   quizPanel.innerHTML = `
     <div class="quiz-card">
-      <div class="progress-label">Word ${currentIndex + 1} of ${dueQueue.length}</div>
-      <div class="subtitle-word">${word.armenian}</div>
-      <div class="subtitle-direction">type the English translation</div>
+      <div class="progress-label">${stepsRemaining} left in today's episode</div>
+      <div class="subtitle-word" style="${promptFont}">${promptWord}</div>
+      <div class="subtitle-direction">${directionLabel}</div>
       <div id="answerArea" style="width:100%;"></div>
       <div class="feedback" id="feedback"></div>
     </div>
   `;
-  wireTypingQuestion(word, document.getElementById("answerArea"), document.getElementById("feedback"), async () => {
-    sessionDone++;
-    currentIndex++;
-    renderQuiz();
+  wireTypingQuestion(word, document.getElementById("answerArea"), document.getElementById("feedback"), advanceSession, direction);
+}
+
+// Flip-card mode: shows the prompt, you recall silently, flip to reveal the answer,
+// then self-rate whether you actually knew it. Faster than typing, good for quick review.
+function renderFlipStep(word, direction, stepsRemaining) {
+  const promptWord = direction === "hy-to-en" ? word.armenian : word.english;
+  const answerWord = direction === "hy-to-en" ? word.english : word.armenian;
+  const promptFont = direction === "hy-to-en" ? "font-family:'Noto Sans Armenian',sans-serif;" : "";
+  const answerFont = direction === "hy-to-en" ? "" : "font-family:'Noto Sans Armenian',sans-serif;";
+  const directionLabel = direction === "hy-to-en" ? "recall the English, then flip" : "recall the Armenian, then flip";
+
+  quizPanel.innerHTML = `
+    <div class="quiz-card">
+      <div class="progress-label">${stepsRemaining} left in today's episode</div>
+      <div class="subtitle-word" style="${promptFont}">${promptWord}</div>
+      <div class="subtitle-direction">${directionLabel}</div>
+      <div id="flipArea" style="width:100%; margin-top:26px;">
+        <button class="btn btn-ghost btn-block" id="flipBtn">Flip card</button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("flipBtn").addEventListener("click", () => {
+    const flipArea = document.getElementById("flipArea");
+    flipArea.innerHTML = `
+      <div style="border-top:1px solid var(--line); padding-top:18px; margin-top:4px;">
+        <div class="sentence-en" style="${answerFont} font-size:20px; font-weight:600; margin-bottom:18px;">${answerWord}</div>
+        <div style="font-size:12px; color:var(--ink-faint); margin-bottom:14px;">Did you know it?</div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn" id="knewItBtn" style="flex:1; background:var(--correct); color:var(--bg);">Knew it</button>
+          <button class="btn" id="didntKnowBtn" style="flex:1; background:var(--wrong); color:var(--bg);">Didn't know</button>
+        </div>
+      </div>
+    `;
+    document.getElementById("knewItBtn").addEventListener("click", async () => {
+      await updateWordAfterAnswer(word, true);
+      advanceSession();
+    });
+    document.getElementById("didntKnowBtn").addEventListener("click", async () => {
+      await updateWordAfterAnswer(word, false);
+      advanceSession();
+    });
   });
 }
 
-function wireTypingQuestion(word, answerArea, feedback, onNext) {
+// Embedded match round within the daily quiz - reuses the standalone Match
+// game's matching mechanic, but advances the session plan when complete.
+function renderQuizMatchRound(words, stepsRemaining) {
+  matchState = { selectedEn: null, selectedHy: null, matchedIds: new Set(), words, stepsRemaining };
+
+  quizPanel.innerHTML = `
+    <div class="quiz-card" style="padding:28px 22px;">
+      <div class="progress-label" id="matchProgress">Match round · 0 of ${words.length} · ${stepsRemaining} left</div>
+      <div id="matchGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; width:100%; margin-top:10px;"></div>
+      <div id="matchDoneArea" style="margin-top:18px;"></div>
+    </div>
+  `;
+  drawMatchGrid(() => {
+    const doneArea = document.getElementById("matchDoneArea");
+    doneArea.innerHTML = `<button class="btn btn-accent btn-block" id="matchContinueBtn">Continue</button>`;
+    document.getElementById("matchContinueBtn").addEventListener("click", () => {
+      sessionDone += words.length;
+      planIndex++;
+      renderQuiz();
+    });
+  });
+}
+
+// Levenshtein distance - used to allow small typos without marking an answer wrong
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) dp[i][j] = dp[i - 1][j - 1];
+      else dp[i][j] = 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+// Allows answers with a small typo to still count as correct - a single mistyped
+// letter usually means the person knew the word, not that they forgot it.
+function isCloseEnough(typed, target) {
+  const a = typed.trim().toLowerCase();
+  const b = target.trim().toLowerCase();
+  if (a === b) return true;
+  const maxAllowedDistance = b.length <= 3 ? 0 : b.length <= 7 ? 1 : 2;
+  return levenshtein(a, b) <= maxAllowedDistance;
+}
+
+function wireTypingQuestion(word, answerArea, feedback, onNext, direction = "hy-to-en") {
+  const askingFor = direction === "hy-to-en" ? word.english : word.armenian;
+  const placeholder = direction === "hy-to-en" ? "Type in English…" : "Type in Armenian…";
+
   const row = document.createElement("div");
   row.className = "answer-row";
   row.innerHTML = `
-    <input type="text" class="answer-input" id="typeInput" placeholder="Type in English…" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <input type="text" class="answer-input" id="typeInput" placeholder="${placeholder}" autocomplete="off" autocapitalize="off" spellcheck="false" />
     <button class="btn" id="submitBtn">Check</button>
   `;
   answerArea.appendChild(row);
@@ -522,19 +727,33 @@ function wireTypingQuestion(word, answerArea, feedback, onNext) {
   input.focus();
 
   const submit = async () => {
-    const val = input.value.trim().toLowerCase();
+    const val = input.value.trim();
     if (!val) return;
-    const correct = val === word.english.toLowerCase();
+    const exact = val.toLowerCase() === askingFor.toLowerCase();
+    const closeEnough = !exact && isCloseEnough(val, askingFor);
+    const correct = exact || closeEnough;
+
     input.classList.add(correct ? "correct" : "wrong");
     input.disabled = true;
     submitBtn.disabled = true;
 
-    feedback.textContent = correct ? "Correct" : `Not quite — it means "${word.english}"`;
-    feedback.className = "feedback " + (correct ? "correct" : "wrong");
+    if (correct && closeEnough) {
+      feedback.textContent = `Close enough — small typo. It's "${askingFor}"`;
+      feedback.className = "feedback correct";
+    } else {
+      feedback.textContent = correct ? "Correct" : `Not quite — it's "${askingFor}"`;
+      feedback.className = "feedback " + (correct ? "correct" : "wrong");
+    }
 
     await updateWordAfterAnswer(word, correct);
     const idx = allWords.findIndex(w => w.id === word.id);
-    if (idx >= 0) allWords[idx] = { ...allWords[idx], box: correct ? Math.min(5, (word.box||1)+1) : 1 };
+    if (idx >= 0) {
+      allWords[idx] = {
+        ...allWords[idx],
+        box: correct ? Math.min(5, (word.box||1)+1) : 1,
+        failCount: correct ? (word.failCount || 0) : (word.failCount || 0) + 1
+      };
+    }
 
     const nextBtn = document.createElement("button");
     nextBtn.className = "btn btn-ghost next-btn";
@@ -583,8 +802,68 @@ async function renderPracticeList() {
   document.getElementById("practiceSearch").addEventListener("input", e => draw(e.target.value));
 }
 
-// ---------- Example sentence generator (offline, template-based, no API calls) ----------
-const SENTENCE_TEMPLATES = [
+// ---------- Example sentence generator (offline, no API calls) ----------
+// Tries to combine the target word with OTHER words you've already saved into
+// one natural-sounding sentence, since seeing several known words together is
+// more useful than seeing one word in isolation. Falls back to a generic
+// single-word template when no safe combination is available.
+
+// A short list of common feeling/state words used to decide which slot a word fits.
+// This is a heuristic, not real grammar - it only recognizes common patterns.
+const FEELING_WORDS = new Set([
+  "tired", "happy", "sad", "angry", "scared", "nervous", "excited", "bored",
+  "hungry", "thirsty", "sick", "sleepy", "confused", "worried", "relieved",
+  "anxious", "calm", "embarrassed", "proud", "jealous", "lonely", "stressed"
+]);
+
+// Words ending in these patterns are usually nouns we can safely drop into "a/an ___" or "the ___"
+function looksLikeNoun(word) {
+  const w = word.toLowerCase();
+  if (FEELING_WORDS.has(w)) return false; // feelings handled separately
+  // crude noun heuristics: most single short words captured from subtitles are nouns
+  if (/^[a-z]+$/.test(w) && !w.endsWith("ly") && !/(ing|ed)$/.test(w)) return true;
+  return false;
+}
+
+function startsWithVowelSound(word) {
+  return /^[aeiou]/i.test(word);
+}
+
+function article(word) {
+  return startsWithVowelSound(word) ? "an" : "a";
+}
+
+// Multi-word combiner: tries to build one sentence using the target word plus
+// one other randomly chosen word from the saved list, when their shapes fit.
+function tryCombinedSentence(word, pool) {
+  const candidates = pool.filter(w => w.id !== word.id);
+  if (candidates.length === 0) return null;
+  const other = candidates[Math.floor(Math.random() * candidates.length)];
+
+  const wordIsFeeling = FEELING_WORDS.has(word.english.toLowerCase());
+  const otherIsFeeling = FEELING_WORDS.has(other.english.toLowerCase());
+  const wordIsNoun = looksLikeNoun(word.english);
+  const otherIsNoun = looksLikeNoun(other.english);
+
+  // Pattern: "I have a [noun] and I feel [feeling]."
+  if (wordIsNoun && otherIsFeeling) {
+    return `I have ${article(word.english)} ${word.english}, so I feel ${other.english}.`;
+  }
+  if (wordIsFeeling && otherIsNoun) {
+    return `I feel ${word.english} because of the ${other.english}.`;
+  }
+  // Pattern: two nouns - "The [noun] and the [noun] were both on the table."
+  if (wordIsNoun && otherIsNoun) {
+    return `I mentioned both the ${word.english} and the ${other.english} in the same sentence.`;
+  }
+  // Pattern: two feelings
+  if (wordIsFeeling && otherIsFeeling) {
+    return `One moment I felt ${word.english}, and the next I felt ${other.english}.`;
+  }
+  return null; // no safe combination found
+}
+
+const SINGLE_WORD_TEMPLATES = [
   (w) => `Can you explain what "${w}" means?`,
   (w) => `I heard the word "${w}" in the show and had to look it up.`,
   (w) => `She used "${w}" twice in that conversation.`,
@@ -597,9 +876,14 @@ const SENTENCE_TEMPLATES = [
   (w) => `That word, "${w}", came up again in the next episode.`
 ];
 
-function generateExampleSentence(word) {
-  const template = SENTENCE_TEMPLATES[Math.floor(Math.random() * SENTENCE_TEMPLATES.length)];
-  return { en: template(word.english) };
+function generateExampleSentence(word, pool) {
+  // Try a combined sentence first (more useful for retention), fall back if it doesn't fit
+  if (pool && pool.length > 1) {
+    const combined = tryCombinedSentence(word, pool);
+    if (combined) return { en: combined, combined: true };
+  }
+  const template = SINGLE_WORD_TEMPLATES[Math.floor(Math.random() * SINGLE_WORD_TEMPLATES.length)];
+  return { en: template(word.english), combined: false };
 }
 
 function renderPracticeDetail(word) {
@@ -636,10 +920,11 @@ function renderPracticeDetail(word) {
 
   document.getElementById("sentenceBtn").addEventListener("click", () => {
     const content = document.getElementById("sentenceContent");
-    const { en } = generateExampleSentence(word);
+    const { en, combined } = generateExampleSentence(word, allWords);
     content.innerHTML = `
       <div style="margin-top:16px;">
         <div class="sentence-en">${en}</div>
+        ${combined ? `<div style="font-size:11px; color:var(--ink-faint); margin-top:6px;">↳ combines two of your saved words</div>` : ""}
       </div>
     `;
     document.getElementById("sentenceBtn").textContent = "Show another";
@@ -714,7 +999,130 @@ function renderPracticeDetail(word) {
   });
 }
 
-// ---------- Import ----------
+// ---------- Match game ----------
+let matchState = { selectedEn: null, selectedHy: null, matchedIds: new Set(), words: [] };
+
+async function renderMatchGame() {
+  const all = await fetchAllWords();
+  if (all.length < 4) {
+    renderEmptyState(matchPanel, "Not enough words yet", "Add at least 4 words to play Match.");
+    return;
+  }
+
+  const batchSize = Math.min(6, all.length);
+  const batch = all.sort(() => Math.random() - 0.5).slice(0, batchSize);
+  matchState = { selectedEn: null, selectedHy: null, matchedIds: new Set(), words: batch };
+
+  matchPanel.innerHTML = `
+    <div class="quiz-card" style="padding:28px 22px;">
+      <div class="progress-label" id="matchProgress">Match each pair · 0 of ${batch.length}</div>
+      <div id="matchGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; width:100%; margin-top:10px;"></div>
+      <div id="matchDoneArea" style="margin-top:18px;"></div>
+    </div>
+  `;
+  drawMatchGrid();
+}
+
+function drawMatchGrid(onComplete) {
+  const grid = document.getElementById("matchGrid");
+  if (!grid) return;
+  grid.innerHTML = "";
+
+  const enCol = document.createElement("div");
+  enCol.style.display = "flex"; enCol.style.flexDirection = "column"; enCol.style.gap = "8px";
+  const hyCol = document.createElement("div");
+  hyCol.style.display = "flex"; hyCol.style.flexDirection = "column"; hyCol.style.gap = "8px";
+
+  const shuffledEn = [...matchState.words].sort(() => Math.random() - 0.5);
+  const shuffledHy = [...matchState.words].sort(() => Math.random() - 0.5);
+
+  shuffledEn.forEach(w => {
+    if (matchState.matchedIds.has(w.id)) return;
+    const cell = document.createElement("div");
+    cell.className = "mc-option-match";
+    cell.textContent = w.english;
+    cell.dataset.id = w.id;
+    cell.addEventListener("click", () => handleMatchClick(w.id, "en", cell, onComplete));
+    enCol.appendChild(cell);
+  });
+
+  shuffledHy.forEach(w => {
+    if (matchState.matchedIds.has(w.id)) return;
+    const cell = document.createElement("div");
+    cell.className = "mc-option-match";
+    cell.textContent = w.armenian;
+    cell.style.fontFamily = "'Noto Sans Armenian', sans-serif";
+    cell.dataset.id = w.id;
+    cell.addEventListener("click", () => handleMatchClick(w.id, "hy", cell, onComplete));
+    hyCol.appendChild(cell);
+  });
+
+  grid.appendChild(enCol);
+  grid.appendChild(hyCol);
+
+  if (matchState.matchedIds.size === matchState.words.length) {
+    if (onComplete) {
+      onComplete();
+    } else {
+      const doneArea = document.getElementById("matchDoneArea");
+      doneArea.innerHTML = `
+        <div class="feedback correct" style="text-align:center;">All matched 🎉</div>
+        <button class="btn btn-accent btn-block" id="matchAgainBtn" style="margin-top:10px;">Play again</button>
+      `;
+      document.getElementById("matchAgainBtn").addEventListener("click", renderMatchGame);
+    }
+  }
+}
+
+function handleMatchClick(id, side, cellEl, onComplete) {
+  if (matchState.matchedIds.has(id)) return;
+
+  if (side === "en") {
+    if (matchState.selectedEnEl) matchState.selectedEnEl.classList.remove("selected");
+    matchState.selectedEn = id;
+    matchState.selectedEnEl = cellEl;
+    cellEl.classList.add("selected");
+  } else {
+    if (matchState.selectedHyEl) matchState.selectedHyEl.classList.remove("selected");
+    matchState.selectedHy = id;
+    matchState.selectedHyEl = cellEl;
+    cellEl.classList.add("selected");
+  }
+
+  if (matchState.selectedEn && matchState.selectedHy) {
+    if (matchState.selectedEn === matchState.selectedHy) {
+      const matchedWord = matchState.words.find(w => w.id === matchState.selectedEn);
+      matchState.matchedIds.add(matchState.selectedEn);
+      matchState.selectedEn = null;
+      matchState.selectedHy = null;
+      matchState.selectedEnEl = null;
+      matchState.selectedHyEl = null;
+      if (matchedWord) updateWordAfterAnswer(matchedWord, true); // matching it correctly counts as a successful review
+      const progress = document.getElementById("matchProgress");
+      if (progress) {
+        progress.textContent = matchState.stepsRemaining != null
+          ? `Match round · ${matchState.matchedIds.size} of ${matchState.words.length} · ${matchState.stepsRemaining} left`
+          : `Match each pair · ${matchState.matchedIds.size} of ${matchState.words.length}`;
+      }
+      drawMatchGrid(onComplete);
+    } else {
+      // Wrong pair - brief flash, then reset selection
+      const wrongEnEl = matchState.selectedEnEl, wrongHyEl = matchState.selectedHyEl;
+      wrongEnEl.classList.add("wrong-flash");
+      wrongHyEl.classList.add("wrong-flash");
+      setTimeout(() => {
+        wrongEnEl.classList.remove("selected", "wrong-flash");
+        wrongHyEl.classList.remove("selected", "wrong-flash");
+      }, 400);
+      matchState.selectedEn = null;
+      matchState.selectedHy = null;
+      matchState.selectedEnEl = null;
+      matchState.selectedHyEl = null;
+    }
+  }
+}
+
+
 function parseImportText(raw) {
   const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
   const pairs = [];
@@ -786,16 +1194,44 @@ async function renderWordsPanel() {
   const words = await fetchAllWords();
   const dueCount = words.filter(isDue).length;
   const mastered = words.filter(w => (w.box || 1) >= 5).length;
+  const leeches = words.filter(isLeech).sort((a, b) => (b.failCount || 0) - (a.failCount || 0));
 
   wordsPanel.innerHTML = `
     <div class="stats-row">
       <div class="stat-card"><div class="num">${words.length}</div><div class="label">Total</div></div>
       <div class="stat-card"><div class="num">${dueCount}</div><div class="label">Due now</div></div>
       <div class="stat-card"><div class="num">${mastered}</div><div class="label">Mastered</div></div>
+      <div class="stat-card"><div class="num">${leeches.length}</div><div class="label">Struggling</div></div>
     </div>
+    ${leeches.length > 0 ? `
+      <div class="section-title">Struggling words</div>
+      <div class="word-list" id="leechListEl" style="margin-bottom:28px;"></div>
+    ` : ""}
     <div class="section-title">All words</div>
     <div class="word-list" id="wordListEl"></div>
   `;
+
+  function buildRow(w) {
+    const row = document.createElement("div");
+    row.className = "word-row";
+    const leechBadge = isLeech(w) ? `<span class="box-badge" style="color:var(--wrong); border:1px solid var(--wrong-soft);">⚠ ${w.failCount}× missed</span>` : `<span class="box-badge">box ${w.box || 1}</span>`;
+    row.innerHTML = `
+      <div class="pair"><span class="en">${w.english}</span><span class="hy">${w.armenian}</span></div>
+      ${leechBadge}
+    `;
+    row.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      document.querySelector('.tab[data-tab="practice"]').classList.add("active");
+      Object.entries(panels).forEach(([key, el]) => { el.style.display = key === "practice" ? "block" : "none"; });
+      renderPracticeDetail(w);
+    });
+    return row;
+  }
+
+  if (leeches.length > 0) {
+    const leechListEl = document.getElementById("leechListEl");
+    leeches.forEach(w => leechListEl.appendChild(buildRow(w)));
+  }
 
   const listEl = document.getElementById("wordListEl");
   if (words.length === 0) {
@@ -805,29 +1241,51 @@ async function renderWordsPanel() {
 
   words
     .sort((a, b) => (a.english || "").localeCompare(b.english || ""))
-    .forEach(w => {
-      const row = document.createElement("div");
-      row.className = "word-row";
-      row.innerHTML = `
-        <div class="pair"><span class="en">${w.english}</span><span class="hy">${w.armenian}</span></div>
-        <span class="box-badge">box ${w.box || 1}</span>
-      `;
-      row.addEventListener("click", () => {
-        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-        document.querySelector('.tab[data-tab="practice"]').classList.add("active");
-        Object.entries(panels).forEach(([key, el]) => { el.style.display = key === "practice" ? "block" : "none"; });
-        renderPracticeDetail(w);
-      });
-      listEl.appendChild(row);
-    });
+    .forEach(w => listEl.appendChild(buildRow(w)));
 }
 
-// ---------- Init ----------
-(async function init() {
+// ---------- Auth gating ----------
+const loginScreen = document.getElementById("loginScreen");
+const mainApp = document.getElementById("mainApp");
+
+async function startApp() {
+  mainApp.style.display = "block";
+  loginScreen.style.display = "none";
   await renderStreak();
   await loadQueue();
   await renderQuiz();
-})();
+}
+
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    startApp();
+  } else {
+    mainApp.style.display = "none";
+    loginScreen.style.display = "block";
+  }
+});
+
+document.getElementById("loginBtn").addEventListener("click", async () => {
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+  const errorEl = document.getElementById("loginError");
+  errorEl.textContent = "";
+  if (!email || !password) {
+    errorEl.textContent = "Enter both email and password.";
+    return;
+  }
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch (err) {
+    errorEl.textContent = "Sign in failed — check your email and password.";
+  }
+});
+
+document.getElementById("loginPassword").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("loginBtn").click();
+});
+
+document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
 </script>
 </body>
 </html>
