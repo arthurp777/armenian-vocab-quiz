@@ -322,7 +322,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore, collection, getDocs, doc, addDoc, setDoc, getDoc,
-  updateDoc, Timestamp
+  updateDoc, deleteDoc, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // ===== CONFIG =====
@@ -606,17 +606,22 @@ function renderPracticeDetail(word) {
   practicePanel.innerHTML = `
     <div class="practice-detail">
       <span class="back-link" id="backToList">← All words</span>
-      <div class="practice-pair">
+      <div class="practice-pair" id="pairDisplay">
         <div class="hy-word">${word.armenian}</div>
         <div class="en-word">${word.english}</div>
       </div>
+      <div id="editForm" style="display:none;"></div>
       <div id="answerAreaPractice" style="width:100%;"></div>
       <div class="feedback" id="feedbackPractice"></div>
       <div class="sentence-block">
         <button class="btn btn-ghost btn-block" id="sentenceBtn">Show example sentence</button>
         <div id="sentenceContent"></div>
-        <div style="margin-top:10px; font-size:12px; color:var(--ink-faint); text-align:center;" id="sentenceReroll"></div>
       </div>
+      <div class="practice-actions">
+        <button class="btn btn-ghost" id="editBtn" style="flex:1;">Edit</button>
+        <button class="btn btn-ghost" id="deleteBtn" style="flex:1; color:var(--wrong); border-color:var(--wrong-soft);">Delete</button>
+      </div>
+      <div id="deleteConfirm" style="display:none; margin-top:12px;"></div>
     </div>
   `;
 
@@ -638,6 +643,74 @@ function renderPracticeDetail(word) {
       </div>
     `;
     document.getElementById("sentenceBtn").textContent = "Show another";
+  });
+
+  // ---- Edit ----
+  document.getElementById("editBtn").addEventListener("click", () => {
+    document.getElementById("pairDisplay").style.display = "none";
+    const formEl = document.getElementById("editForm");
+    formEl.style.display = "block";
+    formEl.innerHTML = `
+      <div style="margin-bottom:24px;">
+        <label style="font-size:12px; color:var(--ink-faint); font-weight:600; display:block; margin-bottom:6px;">Armenian</label>
+        <input type="text" class="search-input" id="editArmenian" value="${word.armenian}" style="margin-bottom:14px;" />
+        <label style="font-size:12px; color:var(--ink-faint); font-weight:600; display:block; margin-bottom:6px;">English</label>
+        <input type="text" class="search-input" id="editEnglish" value="${word.english}" style="margin-bottom:14px;" />
+        <div style="display:flex; gap:10px;">
+          <button class="btn btn-accent" id="saveEditBtn" style="flex:1;">Save</button>
+          <button class="btn btn-ghost" id="cancelEditBtn" style="flex:1;">Cancel</button>
+        </div>
+        <div id="editError" style="color:var(--wrong); font-size:12.5px; margin-top:10px;"></div>
+      </div>
+    `;
+
+    document.getElementById("cancelEditBtn").addEventListener("click", () => renderPracticeDetail(word));
+
+    document.getElementById("saveEditBtn").addEventListener("click", async () => {
+      const newArmenian = document.getElementById("editArmenian").value.trim();
+      const newEnglish = document.getElementById("editEnglish").value.trim();
+      const errorEl = document.getElementById("editError");
+
+      if (!newArmenian || !newEnglish) {
+        errorEl.textContent = "Both fields are required.";
+        return;
+      }
+
+      // Prevent creating a duplicate of another existing word via edit
+      const all = await fetchAllWords();
+      const clash = all.find(w => w.id !== word.id && w.english.toLowerCase() === newEnglish.toLowerCase());
+      if (clash) {
+        errorEl.textContent = `"${newEnglish}" already exists as another word.`;
+        return;
+      }
+
+      await updateDoc(doc(db, "words", word.id), {
+        armenian: newArmenian,
+        english: newEnglish,
+        english_lower: newEnglish.toLowerCase()
+      });
+
+      const updatedWord = { ...word, armenian: newArmenian, english: newEnglish };
+      renderPracticeDetail(updatedWord);
+    });
+  });
+
+  // ---- Delete ----
+  document.getElementById("deleteBtn").addEventListener("click", () => {
+    const confirmEl = document.getElementById("deleteConfirm");
+    confirmEl.style.display = "block";
+    confirmEl.innerHTML = `
+      <div style="font-size:13px; color:var(--ink-soft); margin-bottom:10px;">Delete "${word.english}" → "${word.armenian}"? This can't be undone.</div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn" id="confirmDeleteBtn" style="flex:1; background:var(--wrong);">Delete permanently</button>
+        <button class="btn btn-ghost" id="cancelDeleteBtn" style="flex:1;">Cancel</button>
+      </div>
+    `;
+    document.getElementById("cancelDeleteBtn").addEventListener("click", () => { confirmEl.style.display = "none"; });
+    document.getElementById("confirmDeleteBtn").addEventListener("click", async () => {
+      await deleteDoc(doc(db, "words", word.id));
+      renderPracticeList();
+    });
   });
 }
 
