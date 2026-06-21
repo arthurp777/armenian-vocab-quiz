@@ -169,6 +169,15 @@
   .feedback.wrong { color: var(--wrong); }
 
   .next-btn { margin-top: 16px; }
+  .ignore-link {
+    font-size: 12px;
+    color: var(--ink-faint);
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    transition: color 0.15s ease, text-decoration-color 0.15s ease;
+  }
+  .ignore-link:hover { color: var(--accent); text-decoration-color: var(--accent); }
 
   /* ---------- Empty state ---------- */
   .empty-state { text-align: center; padding: 30px 10px; color: var(--ink-soft); }
@@ -425,6 +434,7 @@ function boxIntervalDays(box) {
 }
 
 function isDue(word) {
+  if (word.ignored) return false;
   if (!word.nextReview) return true;
   const nextReview = word.nextReview.toDate ? word.nextReview.toDate() : new Date(word.nextReview);
   return nextReview <= new Date();
@@ -471,8 +481,6 @@ let allWords = [];
 let dueQueue = [];
 let currentIndex = 0;
 let sessionDone = 0;
-let sessionPlan = [];
-let planIndex = 0;
 
 const quizPanel = document.getElementById("quizPanel");
 const practicePanel = document.getElementById("practicePanel");
@@ -519,34 +527,6 @@ async function loadQueue() {
   dueQueue = allWords.filter(isDue).sort(() => Math.random() - 0.5);
   sessionDone = 0;
   currentIndex = 0;
-  sessionPlan = buildSessionPlan(dueQueue);
-  planIndex = 0;
-}
-
-// Builds the day's session as a sequence of steps so the quiz feels mixed rather
-// than repeating the same question format for every word in a row.
-// Steps are either { type: "word", word, mode } or { type: "match", words }.
-function buildSessionPlan(words) {
-  const plan = [];
-  let pool = [...words];
-  let sinceLastMatch = 0;
-
-  while (pool.length > 0) {
-    // Every ~5 words, if there's enough left, insert a Match round instead of single-word questions
-    if (sinceLastMatch >= 5 && pool.length >= 4) {
-      const batchSize = Math.min(4, pool.length);
-      const batch = pool.slice(0, batchSize);
-      pool = pool.slice(batchSize);
-      plan.push({ type: "match", words: batch });
-      sinceLastMatch = 0;
-      continue;
-    }
-    const word = pool.shift();
-    const mode = Math.random() < 0.5 ? "type" : "flip";
-    plan.push({ type: "word", word, mode });
-    sinceLastMatch++;
-  }
-  return plan;
 }
 
 function renderEmptyState(container, message, sub) {
@@ -565,7 +545,7 @@ async function renderQuiz() {
     renderEmptyState(quizPanel, "No words yet", "Translate something English → Armenian on translate.google.com with the extension installed, or paste your phone history in the Import tab.");
     return;
   }
-  if (planIndex >= sessionPlan.length) {
+  if (currentIndex >= dueQueue.length) {
     if (sessionDone > 0) { await recordSessionComplete(); await renderStreak(); }
     renderEmptyState(
       quizPanel,
@@ -577,110 +557,120 @@ async function renderQuiz() {
     return;
   }
 
-  const step = sessionPlan[planIndex];
-  const stepsRemaining = sessionPlan.length - planIndex;
+  const word = dueQueue[currentIndex];
+  // Question type is decided by this word's own box level, not chance:
+  // new/shaky words (box 1-2) get multiple choice first; proven words (box 3+) get typing.
+  // This stays consistent for a given word until it actually levels up.
+  const useTyping = (word.box || 1) >= 3;
 
-  if (step.type === "match") {
-    renderQuizMatchRound(step.words, stepsRemaining);
-    return;
-  }
-
-  const { word, mode } = step;
-  const direction = Math.random() < 0.5 ? "hy-to-en" : "en-to-hy";
-
-  if (mode === "flip") {
-    renderFlipStep(word, direction, stepsRemaining);
+  if (useTyping) {
+    renderTypeStep(word);
   } else {
-    renderTypeStep(word, direction, stepsRemaining);
+    renderChoiceStep(word);
   }
 }
 
 function advanceSession() {
   sessionDone++;
-  planIndex++;
+  currentIndex++;
   renderQuiz();
 }
 
-function renderTypeStep(word, direction, stepsRemaining) {
+function renderTypeStep(word) {
+  const direction = Math.random() < 0.5 ? "hy-to-en" : "en-to-hy";
   const promptWord = direction === "hy-to-en" ? word.armenian : word.english;
   const promptFont = direction === "hy-to-en" ? "font-family:'Noto Sans Armenian',sans-serif;" : "";
   const directionLabel = direction === "hy-to-en" ? "type the English translation" : "type the Armenian translation";
 
   quizPanel.innerHTML = `
     <div class="quiz-card">
-      <div class="progress-label">${stepsRemaining} left in today's episode</div>
+      <div class="progress-label">Word ${currentIndex + 1} of ${dueQueue.length}</div>
       <div class="subtitle-word" style="${promptFont}">${promptWord}</div>
       <div class="subtitle-direction">${directionLabel}</div>
       <div id="answerArea" style="width:100%;"></div>
       <div class="feedback" id="feedback"></div>
+      ${renderIgnoreButtonHtml()}
     </div>
   `;
   wireTypingQuestion(word, document.getElementById("answerArea"), document.getElementById("feedback"), advanceSession, direction);
+  wireIgnoreButton(word);
 }
 
-// Flip-card mode: shows the prompt, you recall silently, flip to reveal the answer,
-// then self-rate whether you actually knew it. Faster than typing, good for quick review.
-function renderFlipStep(word, direction, stepsRemaining) {
+// Multiple choice for new/shaky words - recognition is easier than recall,
+// so this is how a word is introduced before typing is ever demanded.
+function renderChoiceStep(word) {
+  const direction = Math.random() < 0.5 ? "hy-to-en" : "en-to-hy";
   const promptWord = direction === "hy-to-en" ? word.armenian : word.english;
-  const answerWord = direction === "hy-to-en" ? word.english : word.armenian;
   const promptFont = direction === "hy-to-en" ? "font-family:'Noto Sans Armenian',sans-serif;" : "";
+  const directionLabel = direction === "hy-to-en" ? "choose the English translation" : "choose the Armenian translation";
+  const correctAnswer = direction === "hy-to-en" ? word.english : word.armenian;
   const answerFont = direction === "hy-to-en" ? "" : "font-family:'Noto Sans Armenian',sans-serif;";
-  const directionLabel = direction === "hy-to-en" ? "recall the English, then flip" : "recall the Armenian, then flip";
+
+  const otherWords = allWords.filter(w => w.id !== word.id);
+  const distractors = otherWords
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 3)
+    .map(w => direction === "hy-to-en" ? w.english : w.armenian);
+  const options = [correctAnswer, ...distractors].sort(() => Math.random() - 0.5);
 
   quizPanel.innerHTML = `
     <div class="quiz-card">
-      <div class="progress-label">${stepsRemaining} left in today's episode</div>
+      <div class="progress-label">Word ${currentIndex + 1} of ${dueQueue.length}</div>
       <div class="subtitle-word" style="${promptFont}">${promptWord}</div>
       <div class="subtitle-direction">${directionLabel}</div>
-      <div id="flipArea" style="width:100%; margin-top:26px;">
-        <button class="btn btn-ghost btn-block" id="flipBtn">Flip card</button>
-      </div>
+      <div class="mc-grid" id="choiceGrid" style="${answerFont}"></div>
+      <div class="feedback" id="feedback"></div>
+      ${renderIgnoreButtonHtml()}
     </div>
   `;
 
-  document.getElementById("flipBtn").addEventListener("click", () => {
-    const flipArea = document.getElementById("flipArea");
-    flipArea.innerHTML = `
-      <div style="border-top:1px solid var(--line); padding-top:18px; margin-top:4px;">
-        <div class="sentence-en" style="${answerFont} font-size:20px; font-weight:600; margin-bottom:18px;">${answerWord}</div>
-        <div style="font-size:12px; color:var(--ink-faint); margin-bottom:14px;">Did you know it?</div>
-        <div style="display:flex; gap:10px;">
-          <button class="btn" id="knewItBtn" style="flex:1; background:var(--correct); color:var(--bg);">Knew it</button>
-          <button class="btn" id="didntKnowBtn" style="flex:1; background:var(--wrong); color:var(--bg);">Didn't know</button>
-        </div>
-      </div>
-    `;
-    document.getElementById("knewItBtn").addEventListener("click", async () => {
-      await updateWordAfterAnswer(word, true);
-      advanceSession();
+  const grid = document.getElementById("choiceGrid");
+  const feedback = document.getElementById("feedback");
+  options.forEach(opt => {
+    const btn = document.createElement("div");
+    btn.className = "mc-option";
+    btn.textContent = opt;
+    btn.addEventListener("click", async () => {
+      const correct = opt === correctAnswer;
+      document.querySelectorAll(".mc-option").forEach(o => {
+        o.classList.add("disabled");
+        if (o.textContent === correctAnswer) o.classList.add("correct");
+        else if (o === btn && !correct) o.classList.add("wrong");
+      });
+      feedback.textContent = correct ? "Correct" : `Not quite — it's "${correctAnswer}"`;
+      feedback.className = "feedback " + (correct ? "correct" : "wrong");
+
+      await updateWordAfterAnswer(word, correct);
+      const idx = allWords.findIndex(w => w.id === word.id);
+      if (idx >= 0) allWords[idx] = { ...allWords[idx], box: correct ? Math.min(5, (word.box||1)+1) : 1 };
+
+      const nextBtn = document.createElement("button");
+      nextBtn.className = "btn btn-ghost next-btn";
+      nextBtn.textContent = "Next →";
+      nextBtn.addEventListener("click", advanceSession);
+      grid.parentElement.appendChild(nextBtn);
     });
-    document.getElementById("didntKnowBtn").addEventListener("click", async () => {
-      await updateWordAfterAnswer(word, false);
-      advanceSession();
-    });
+    grid.appendChild(btn);
   });
+
+  wireIgnoreButton(word);
 }
 
-// Embedded match round within the daily quiz - reuses the standalone Match
-// game's matching mechanic, but advances the session plan when complete.
-function renderQuizMatchRound(words, stepsRemaining) {
-  matchState = { selectedEn: null, selectedHy: null, matchedIds: new Set(), words, stepsRemaining };
+// "I know this" button - removes a word from the daily Quiz permanently.
+// It stays visible and editable in Words/Practice, just excluded from review.
+function renderIgnoreButtonHtml() {
+  return `<div style="margin-top:18px;"><span class="ignore-link" id="ignoreLink">I already know this word — stop asking</span></div>`;
+}
 
-  quizPanel.innerHTML = `
-    <div class="quiz-card" style="padding:28px 22px;">
-      <div class="progress-label" id="matchProgress">Match round · 0 of ${words.length} · ${stepsRemaining} left</div>
-      <div id="matchGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; width:100%; margin-top:10px;"></div>
-      <div id="matchDoneArea" style="margin-top:18px;"></div>
-    </div>
-  `;
-  drawMatchGrid(() => {
-    const doneArea = document.getElementById("matchDoneArea");
-    doneArea.innerHTML = `<button class="btn btn-accent btn-block" id="matchContinueBtn">Continue</button>`;
-    document.getElementById("matchContinueBtn").addEventListener("click", () => {
-      sessionDone += words.length;
-      planIndex++;
-      renderQuiz();
-    });
+function wireIgnoreButton(word) {
+  const link = document.getElementById("ignoreLink");
+  if (!link) return;
+  link.addEventListener("click", async () => {
+    await updateDoc(doc(db, "words", word.id), { ignored: true });
+    const idx = allWords.findIndex(w => w.id === word.id);
+    if (idx >= 0) allWords[idx] = { ...allWords[idx], ignored: true };
+    dueQueue.splice(currentIndex, 1); // remove from today's queue without shifting the rest forward incorrectly
+    renderQuiz();
   });
 }
 
@@ -887,12 +877,14 @@ function generateExampleSentence(word, pool) {
 }
 
 function renderPracticeDetail(word) {
+  const ignoreLabel = word.ignored ? "Add back to Quiz rotation" : "I know this — remove from Quiz";
   practicePanel.innerHTML = `
     <div class="practice-detail">
       <span class="back-link" id="backToList">← All words</span>
       <div class="practice-pair" id="pairDisplay">
         <div class="hy-word">${word.armenian}</div>
         <div class="en-word">${word.english}</div>
+        ${word.ignored ? `<div style="font-size:11px; color:var(--ink-faint); margin-top:6px;">Excluded from daily Quiz</div>` : ""}
       </div>
       <div id="editForm" style="display:none;"></div>
       <div id="answerAreaPractice" style="width:100%;"></div>
@@ -905,11 +897,18 @@ function renderPracticeDetail(word) {
         <button class="btn btn-ghost" id="editBtn" style="flex:1;">Edit</button>
         <button class="btn btn-ghost" id="deleteBtn" style="flex:1; color:var(--wrong); border-color:var(--wrong-soft);">Delete</button>
       </div>
+      <button class="btn btn-ghost btn-block" id="toggleIgnoreBtn" style="margin-top:10px;">${ignoreLabel}</button>
       <div id="deleteConfirm" style="display:none; margin-top:12px;"></div>
     </div>
   `;
 
   document.getElementById("backToList").addEventListener("click", renderPracticeList);
+
+  document.getElementById("toggleIgnoreBtn").addEventListener("click", async () => {
+    const newIgnored = !word.ignored;
+    await updateDoc(doc(db, "words", word.id), { ignored: newIgnored });
+    renderPracticeDetail({ ...word, ignored: newIgnored });
+  });
 
   wireTypingQuestion(
     word,
@@ -1214,11 +1213,14 @@ async function renderWordsPanel() {
   function buildRow(w) {
     const row = document.createElement("div");
     row.className = "word-row";
-    const leechBadge = isLeech(w) ? `<span class="box-badge" style="color:var(--wrong); border:1px solid var(--wrong-soft);">⚠ ${w.failCount}× missed</span>` : `<span class="box-badge">box ${w.box || 1}</span>`;
+    let badge = `<span class="box-badge">box ${w.box || 1}</span>`;
+    if (isLeech(w)) badge = `<span class="box-badge" style="color:var(--wrong); border:1px solid var(--wrong-soft);">⚠ ${w.failCount}× missed</span>`;
+    if (w.ignored) badge = `<span class="box-badge" style="color:var(--ink-faint);">known</span>`;
     row.innerHTML = `
       <div class="pair"><span class="en">${w.english}</span><span class="hy">${w.armenian}</span></div>
-      ${leechBadge}
+      ${badge}
     `;
+    if (w.ignored) row.style.opacity = "0.55";
     row.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
       document.querySelector('.tab[data-tab="practice"]').classList.add("active");
