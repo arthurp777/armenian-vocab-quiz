@@ -6,369 +6,326 @@
 <title>Reruns — Armenian Vocab</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo+Expanded:wght@600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+Armenian:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=Noto+Sans+Armenian:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #16171d;
-    --surface: #21232b;
-    --surface-2: #2a2d38;
-    --subtitle: #f2c14e;
-    --correct: #4a9d6e;
-    --wrong: #d64545;
-    --fog: #9a9aa6;
-    --fog-dim: #6b6c78;
-    --white: #f4f3ef;
-    --border: #34374420;
+    --bg: #fafaf8;
+    --ink: #1c1c1a;
+    --ink-soft: #55554f;
+    --ink-faint: #a3a299;
+    --line: #e4e2dc;
+    --surface: #f2f0ea;
+    --accent: #c98a2c;
+    --accent-soft: #f6e8d2;
+    --correct: #3f7d5c;
+    --correct-soft: #e3efe7;
+    --wrong: #b8453a;
+    --wrong-soft: #f6e6e3;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   html, body {
     background: var(--bg);
-    color: var(--white);
+    color: var(--ink);
     font-family: 'Inter', sans-serif;
     min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
   }
 
   body {
     display: flex;
     justify-content: center;
-    padding: 24px 16px 64px;
+    padding: 40px 20px 80px;
   }
 
-  .app {
-    width: 100%;
-    max-width: 560px;
-  }
+  .app { width: 100%; max-width: 600px; }
 
-  /* ---------- Header / episode strip ---------- */
+  /* ---------- Header ---------- */
   .header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
+    align-items: baseline;
+    margin-bottom: 6px;
   }
-
   .logo {
-    font-family: 'Archivo Expanded', sans-serif;
-    font-weight: 800;
-    font-size: 22px;
-    letter-spacing: -0.02em;
-    color: var(--white);
-  }
-  .logo span { color: var(--subtitle); }
-
-  .streak-pill {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--surface);
-    border-radius: 999px;
-    padding: 6px 14px 6px 10px;
-    font-size: 13px;
+    font-family: 'Source Serif 4', serif;
     font-weight: 600;
-    color: var(--fog);
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
   }
-  .streak-pill .count { color: var(--subtitle); font-weight: 700; }
+  .streak-line {
+    font-size: 13px;
+    color: var(--ink-faint);
+    font-weight: 500;
+  }
+  .streak-line .count { color: var(--accent); font-weight: 700; }
 
   .episode-strip {
     display: flex;
-    gap: 4px;
-    margin-bottom: 28px;
+    gap: 3px;
+    margin: 18px 0 32px;
   }
-  .ep-mark {
-    flex: 1;
-    height: 5px;
-    border-radius: 3px;
-    background: var(--surface);
-  }
-  .ep-mark.done { background: var(--subtitle); }
-  .ep-mark.today { background: var(--surface-2); border: 1.5px solid var(--subtitle); height: 5px; }
+  .ep-mark { flex: 1; height: 3px; background: var(--line); border-radius: 2px; }
+  .ep-mark.done { background: var(--accent); }
+  .ep-mark.today { background: var(--accent-soft); border: 1px solid var(--accent); height: 2px; }
 
   /* ---------- Tabs ---------- */
   .tabs {
     display: flex;
-    gap: 6px;
-    margin-bottom: 24px;
-    background: var(--surface);
-    border-radius: 12px;
-    padding: 4px;
+    gap: 22px;
+    margin-bottom: 32px;
+    border-bottom: 1px solid var(--line);
   }
   .tab {
-    flex: 1;
-    text-align: center;
-    padding: 10px 0;
-    border-radius: 9px;
+    padding: 0 0 12px;
     font-size: 14px;
     font-weight: 600;
-    color: var(--fog);
+    color: var(--ink-faint);
     cursor: pointer;
-    transition: all 0.15s ease;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
     user-select: none;
+    transition: color 0.15s ease;
   }
-  .tab.active {
-    background: var(--surface-2);
-    color: var(--white);
-  }
+  .tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--ink); }
 
-  /* ---------- Quiz frame (the "paused video") ---------- */
-  .frame {
-    background: linear-gradient(160deg, #1b1c23, #131418);
-    border-radius: 18px;
-    padding: 0;
-    overflow: hidden;
-    box-shadow: 0 20px 50px -20px rgba(0,0,0,0.6);
-    margin-bottom: 20px;
-  }
-  .letterbox {
-    height: 18px;
-    background: #0d0e11;
-  }
-  .frame-inner {
-    padding: 48px 32px 36px;
+  /* ---------- Quiz card ---------- */
+  .quiz-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 56px 36px 40px;
     text-align: center;
-    min-height: 220px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    background: #fff;
   }
-
   .progress-label {
-    font-size: 12px;
-    color: var(--fog-dim);
+    font-size: 11px;
+    color: var(--ink-faint);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 18px;
+    letter-spacing: 0.09em;
+    margin-bottom: 22px;
     font-weight: 600;
   }
-
   .subtitle-word {
-    font-family: 'Noto Sans Armenian', 'Archivo Expanded', sans-serif;
-    font-weight: 700;
-    font-size: 40px;
-    color: var(--subtitle);
-    text-shadow: 0 2px 18px rgba(242,193,78,0.25);
-    margin-bottom: 6px;
+    font-family: 'Noto Sans Armenian', sans-serif;
+    font-weight: 600;
+    font-size: 38px;
+    color: var(--ink);
+    margin-bottom: 8px;
     word-break: break-word;
+    line-height: 1.2;
   }
   .subtitle-direction {
     font-size: 12px;
-    color: var(--fog-dim);
+    color: var(--ink-faint);
     font-weight: 500;
+    margin-bottom: 8px;
   }
 
-  .answer-row {
-    display: flex;
-    gap: 10px;
-    margin-top: 22px;
-    width: 100%;
-  }
+  .answer-row { display: flex; gap: 10px; margin-top: 26px; width: 100%; }
   .answer-input {
     flex: 1;
-    background: var(--surface);
-    border: 2px solid transparent;
-    border-radius: 12px;
-    padding: 14px 16px;
+    background: var(--bg);
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    padding: 13px 16px;
     font-size: 16px;
-    color: var(--white);
+    color: var(--ink);
     font-family: 'Inter', sans-serif;
     outline: none;
     transition: border-color 0.15s ease;
   }
-  .answer-input:focus { border-color: var(--subtitle); }
-  .answer-input.correct { border-color: var(--correct); }
-  .answer-input.wrong { border-color: var(--wrong); }
+  .answer-input:focus { border-color: var(--accent); }
+  .answer-input.correct { border-color: var(--correct); background: var(--correct-soft); }
+  .answer-input.wrong { border-color: var(--wrong); background: var(--wrong-soft); }
 
-  .submit-btn {
-    background: var(--subtitle);
-    color: #1a1505;
+  .btn {
+    background: var(--ink);
+    color: #fff;
     border: none;
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 0 22px;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 14px;
     cursor: pointer;
-    transition: transform 0.1s ease, opacity 0.15s ease;
+    font-family: 'Inter', sans-serif;
+    transition: opacity 0.15s ease;
   }
-  .submit-btn:hover { transform: translateY(-1px); }
-  .submit-btn:disabled { opacity: 0.4; cursor: default; }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.35; cursor: default; }
+  .btn-block { width: 100%; padding: 13px 0; }
+  .btn-ghost {
+    background: transparent;
+    border: 1.5px solid var(--line);
+    color: var(--ink-soft);
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+  .btn-accent { background: var(--accent); }
 
-  .mc-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    width: 100%;
-    margin-top: 22px;
-  }
-  .mc-option {
-    background: var(--surface);
-    border: 2px solid transparent;
-    border-radius: 12px;
-    padding: 14px 12px;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--white);
-    cursor: pointer;
-    text-align: center;
-    transition: all 0.12s ease;
-  }
-  .mc-option:hover { background: var(--surface-2); }
-  .mc-option.correct { border-color: var(--correct); background: rgba(74,157,110,0.15); }
-  .mc-option.wrong { border-color: var(--wrong); background: rgba(214,69,69,0.15); }
-  .mc-option.disabled { pointer-events: none; }
-
-  .feedback {
-    margin-top: 16px;
-    font-size: 14px;
-    font-weight: 600;
-    min-height: 20px;
-  }
+  .feedback { margin-top: 18px; font-size: 14px; font-weight: 600; min-height: 20px; }
   .feedback.correct { color: var(--correct); }
   .feedback.wrong { color: var(--wrong); }
 
-  .next-btn {
-    margin-top: 14px;
-    background: transparent;
-    border: 1.5px solid var(--surface-2);
-    color: var(--fog);
-    border-radius: 10px;
-    padding: 10px 20px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .next-btn:hover { border-color: var(--subtitle); color: var(--subtitle); }
+  .next-btn { margin-top: 16px; }
 
-  /* ---------- Empty / done states ---------- */
-  .empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: var(--fog);
+  /* ---------- Empty state ---------- */
+  .empty-state { text-align: center; padding: 30px 10px; color: var(--ink-soft); }
+  .empty-state .big {
+    font-family: 'Source Serif 4', serif;
+    font-size: 19px; font-weight: 600; color: var(--ink); margin-bottom: 8px;
   }
-  .empty-state .big { font-size: 17px; font-weight: 700; color: var(--white); margin-bottom: 8px; }
-  .empty-state .small { font-size: 13px; line-height: 1.5; }
+  .empty-state .small { font-size: 13px; line-height: 1.6; color: var(--ink-faint); max-width: 360px; margin: 0 auto; }
 
-  /* ---------- Import box ---------- */
+  /* ---------- Import ---------- */
   .import-box textarea {
     width: 100%;
-    min-height: 160px;
-    background: var(--surface);
-    border: none;
-    border-radius: 12px;
+    min-height: 150px;
+    background: #fff;
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
     padding: 14px;
-    color: var(--white);
+    color: var(--ink);
     font-family: 'Inter', sans-serif;
     font-size: 14px;
     resize: vertical;
     outline: none;
     margin-bottom: 12px;
   }
-  .import-box .hint {
-    font-size: 12px;
-    color: var(--fog-dim);
-    margin-bottom: 14px;
-    line-height: 1.5;
+  .import-box textarea:focus { border-color: var(--accent); }
+  .import-box .hint { font-size: 12.5px; color: var(--ink-faint); margin-bottom: 16px; line-height: 1.6; }
+  .import-result { margin-top: 14px; font-size: 13px; color: var(--correct); font-weight: 600; }
+
+  /* ---------- Stats ---------- */
+  .stats-row { display: flex; gap: 1px; margin-bottom: 28px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .stat-card { flex: 1; padding: 16px 8px; text-align: center; background: #fff; }
+  .stat-card + .stat-card { border-left: 1px solid var(--line); }
+  .stat-card .num {
+    font-family: 'Source Serif 4', serif;
+    font-size: 26px; font-weight: 700; color: var(--ink);
   }
-  .import-result {
-    margin-top: 14px;
-    font-size: 13px;
-    color: var(--correct);
-    font-weight: 600;
+  .stat-card .label { font-size: 10.5px; color: var(--ink-faint); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+
+  .section-title {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-faint);
+    margin: 8px 0 12px;
   }
 
+  /* ---------- Search ---------- */
+  .search-input {
+    width: 100%;
+    background: #fff;
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    padding: 11px 14px;
+    font-size: 14px;
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    outline: none;
+    margin-bottom: 18px;
+  }
+  .search-input:focus { border-color: var(--accent); }
+
   /* ---------- Word list ---------- */
-  .word-list { display: flex; flex-direction: column; gap: 8px; }
+  .word-list { display: flex; flex-direction: column; gap: 1px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
   .word-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: var(--surface);
-    border-radius: 10px;
-    padding: 12px 14px;
+    background: #fff;
+    padding: 13px 16px;
     font-size: 14px;
+    gap: 10px;
+    cursor: pointer;
+    transition: background 0.12s ease;
   }
-  .word-row .pair { display: flex; gap: 10px; align-items: baseline; }
+  .word-row:hover { background: var(--surface); }
+  .word-row .pair { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
   .word-row .en { font-weight: 600; }
-  .word-row .hy { color: var(--subtitle); font-family: 'Noto Sans Armenian', sans-serif; }
+  .word-row .hy { color: var(--accent); font-family: 'Noto Sans Armenian', sans-serif; font-weight: 500; }
   .word-row .box-badge {
-    font-size: 11px;
-    color: var(--fog-dim);
-    background: var(--surface-2);
-    border-radius: 6px;
-    padding: 3px 8px;
+    font-size: 10.5px; color: var(--ink-faint); background: var(--surface);
+    border-radius: 6px; padding: 3px 8px; font-weight: 600; flex-shrink: 0;
+  }
+
+  /* ---------- Practice detail panel ---------- */
+  .practice-detail {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 32px 28px;
+    background: #fff;
+    margin-bottom: 18px;
+  }
+  .practice-detail .back-link {
+    font-size: 13px;
+    color: var(--ink-faint);
+    cursor: pointer;
+    margin-bottom: 20px;
+    display: inline-block;
     font-weight: 600;
   }
-
-  .section-title {
-    font-size: 13px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--fog-dim);
-    margin: 20px 0 10px;
+  .practice-detail .back-link:hover { color: var(--accent); }
+  .practice-pair { text-align: center; margin-bottom: 24px; }
+  .practice-pair .hy-word {
+    font-family: 'Noto Sans Armenian', sans-serif;
+    font-size: 30px; font-weight: 600; color: var(--ink); margin-bottom: 4px;
   }
+  .practice-pair .en-word { font-size: 15px; color: var(--ink-faint); font-weight: 500; }
 
-  .stats-row {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
+  .sentence-block {
+    border-top: 1px solid var(--line);
+    padding-top: 20px;
+    margin-top: 20px;
   }
-  .stat-card {
-    flex: 1;
-    background: var(--surface);
-    border-radius: 12px;
-    padding: 14px;
-    text-align: center;
-  }
-  .stat-card .num { font-size: 24px; font-weight: 800; font-family: 'Archivo Expanded', sans-serif; color: var(--subtitle); }
-  .stat-card .label { font-size: 11px; color: var(--fog-dim); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .sentence-en { font-size: 15px; color: var(--ink); margin-bottom: 6px; line-height: 1.5; }
+  .sentence-hy { font-family: 'Noto Sans Armenian', sans-serif; font-size: 15px; color: var(--accent); line-height: 1.5; }
+  .sentence-loading { font-size: 13px; color: var(--ink-faint); }
+  .sentence-error { font-size: 13px; color: var(--wrong); }
 
-  .config-note {
-    background: var(--surface);
-    border-radius: 12px;
-    padding: 14px;
-    font-size: 12px;
-    color: var(--fog-dim);
-    line-height: 1.6;
-    margin-bottom: 20px;
-  }
-  .config-note code { color: var(--subtitle); }
+  .practice-actions { display: flex; gap: 10px; margin-top: 22px; }
 
-  @media (max-width: 420px) {
-    .subtitle-word { font-size: 30px; }
-    .mc-grid { grid-template-columns: 1fr; }
+  @media (max-width: 460px) {
+    .subtitle-word { font-size: 28px; }
+    .quiz-card { padding: 40px 22px 30px; }
+    .tabs { gap: 14px; }
   }
 </style>
 </head>
 <body>
 <div class="app">
   <div class="header">
-    <div class="logo">re<span>runs</span></div>
-    <div class="streak-pill">📺 <span class="count" id="streakCount">0</span> day series</div>
+    <div class="logo">reruns</div>
+    <div class="streak-line"><span class="count" id="streakCount">0</span> day series</div>
   </div>
 
   <div class="episode-strip" id="episodeStrip"></div>
 
   <div class="tabs">
     <div class="tab active" data-tab="quiz">Quiz</div>
-    <div class="tab" data-tab="import">Import</div>
+    <div class="tab" data-tab="practice">Practice</div>
     <div class="tab" data-tab="words">Words</div>
+    <div class="tab" data-tab="import">Import</div>
   </div>
 
   <div id="quizPanel"></div>
-  <div id="importPanel" style="display:none;"></div>
+  <div id="practicePanel" style="display:none;"></div>
   <div id="wordsPanel" style="display:none;"></div>
+  <div id="importPanel" style="display:none;"></div>
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, collection, getDocs, doc, updateDoc, addDoc, setDoc, getDoc,
-  query, where, Timestamp, deleteDoc
+  getFirestore, collection, getDocs, doc, addDoc, setDoc, getDoc,
+  updateDoc, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// ===== CONFIG: paste your Firebase config here =====
+// ===== CONFIG =====
 const firebaseConfig = {
   apiKey: "AIzaSyDmszsxVjsgoiyad2C0Zb4fgGJmhU8uK_g",
   authDomain: "armenian-vocab.firebaseapp.com",
@@ -377,19 +334,15 @@ const firebaseConfig = {
   messagingSenderId: "535107629746",
   appId: "1:535107629746:web:9553753bb81bf0333b8fab"
 };
-// =====================================================
+// ===================
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const wordsRef = collection(db, "words");
 
-// ---------- Local streak tracking (stored in Firestore as a single doc) ----------
 const META_DOC_ID = "streak_meta";
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
-
+function todayStr() { return new Date().toISOString().slice(0, 10); }
 function daysBetween(a, b) {
   const d1 = new Date(a + "T00:00:00Z");
   const d2 = new Date(b + "T00:00:00Z");
@@ -407,14 +360,14 @@ async function recordSessionComplete() {
   const ref = doc(db, "meta", META_DOC_ID);
   const meta = await getStreakMeta();
   const today = todayStr();
-  if (meta.lastCompletedDate === today) return meta; // already counted today
+  if (meta.lastCompletedDate === today) return meta;
 
   let newStreak = 1;
   if (meta.lastCompletedDate) {
     const gap = daysBetween(meta.lastCompletedDate, today);
     if (gap === 1) newStreak = (meta.streak || 0) + 1;
     else if (gap === 0) newStreak = meta.streak || 1;
-    else newStreak = 1; // streak broken
+    else newStreak = 1;
   }
   const history = (meta.history || []).concat([today]).slice(-30);
   const updated = { streak: newStreak, lastCompletedDate: today, history };
@@ -422,9 +375,7 @@ async function recordSessionComplete() {
   return updated;
 }
 
-// ---------- Word helpers ----------
 function boxIntervalDays(box) {
-  // Leitner-style spacing: higher box = reviewed less often
   const map = { 1: 0, 2: 1, 3: 3, 4: 7, 5: 16 };
   return map[box] ?? 0;
 }
@@ -447,13 +398,8 @@ async function updateWordAfterAnswer(word, correct) {
   let newBox = word.box || 1;
   let newCorrectStreak = word.correctStreak || 0;
 
-  if (correct) {
-    newBox = Math.min(5, newBox + 1);
-    newCorrectStreak += 1;
-  } else {
-    newBox = 1;
-    newCorrectStreak = 0;
-  }
+  if (correct) { newBox = Math.min(5, newBox + 1); newCorrectStreak += 1; }
+  else { newBox = 1; newCorrectStreak = 0; }
 
   const days = boxIntervalDays(newBox);
   const next = new Date();
@@ -467,36 +413,34 @@ async function updateWordAfterAnswer(word, correct) {
   });
 }
 
-// ---------- App state ----------
+// ---------- State ----------
 let allWords = [];
 let dueQueue = [];
 let currentIndex = 0;
-let sessionTotal = 0;
 let sessionDone = 0;
 
 const quizPanel = document.getElementById("quizPanel");
-const importPanel = document.getElementById("importPanel");
+const practicePanel = document.getElementById("practicePanel");
 const wordsPanel = document.getElementById("wordsPanel");
+const importPanel = document.getElementById("importPanel");
 
-// ---------- Tabs ----------
+const panels = { quiz: quizPanel, practice: practicePanel, words: wordsPanel, import: importPanel };
+
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
     tab.classList.add("active");
     const target = tab.dataset.tab;
-    quizPanel.style.display = target === "quiz" ? "block" : "none";
-    importPanel.style.display = target === "import" ? "block" : "none";
-    wordsPanel.style.display = target === "words" ? "block" : "none";
+    Object.entries(panels).forEach(([key, el]) => { el.style.display = key === target ? "block" : "none"; });
     if (target === "words") renderWordsPanel();
     if (target === "import") renderImportPanel();
+    if (target === "practice") renderPracticeList();
   });
 });
 
-// ---------- Episode strip + streak ----------
 async function renderStreak() {
   const meta = await getStreakMeta();
   document.getElementById("streakCount").textContent = meta.streak || 0;
-
   const strip = document.getElementById("episodeStrip");
   strip.innerHTML = "";
   const history = meta.history || [];
@@ -513,161 +457,194 @@ async function renderStreak() {
   }
 }
 
-// ---------- Quiz rendering ----------
-function pickQuestionType(word) {
-  // Always require typing the answer, per user preference - typing reinforces recall better than picking
-  return "type";
-}
-
-function buildDistractors(correctWord, pool, count = 3) {
-  const others = pool.filter(w => w.id !== correctWord.id && w.english.toLowerCase() !== correctWord.english.toLowerCase());
-  const shuffled = others.sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count).map(w => w.english);
-}
-
 async function loadQueue() {
   allWords = await fetchAllWords();
-  dueQueue = allWords.filter(isDue);
-  // Shuffle
-  dueQueue = dueQueue.sort(() => Math.random() - 0.5);
-  sessionTotal = dueQueue.length;
+  dueQueue = allWords.filter(isDue).sort(() => Math.random() - 0.5);
   sessionDone = 0;
   currentIndex = 0;
 }
 
-function renderEmptyState(message, sub) {
-  quizPanel.innerHTML = `
-    <div class="frame">
-      <div class="letterbox"></div>
-      <div class="frame-inner">
-        <div class="empty-state">
-          <div class="big">${message}</div>
-          <div class="small">${sub}</div>
-        </div>
+function renderEmptyState(container, message, sub) {
+  container.innerHTML = `
+    <div class="quiz-card">
+      <div class="empty-state">
+        <div class="big">${message}</div>
+        <div class="small">${sub}</div>
       </div>
-      <div class="letterbox"></div>
     </div>
   `;
 }
 
 async function renderQuiz() {
   if (allWords.length === 0) {
-    renderEmptyState("No words yet", "Translate something English → Armenian on translate.google.com (with the extension installed), or paste your phone history in the Import tab.");
+    renderEmptyState(quizPanel, "No words yet", "Translate something English → Armenian on translate.google.com with the extension installed, or paste your phone history in the Import tab.");
     return;
   }
-
   if (currentIndex >= dueQueue.length) {
-    if (sessionDone > 0) {
-      await recordSessionComplete();
-      await renderStreak();
-    }
+    if (sessionDone > 0) { await recordSessionComplete(); await renderStreak(); }
     renderEmptyState(
-      sessionDone > 0 ? "Episode complete 🎬" : "All caught up",
+      quizPanel,
+      sessionDone > 0 ? "Episode complete" : "All caught up",
       sessionDone > 0
-        ? `You reviewed ${sessionDone} word${sessionDone === 1 ? "" : "s"}. Come back tomorrow for the next one.`
-        : "No words are due for review right now. Check back later."
+        ? `You reviewed ${sessionDone} word${sessionDone === 1 ? "" : "s"}. Come back tomorrow for the next one — or visit Practice to drill any word anytime.`
+        : "No words are due for review right now. Visit Practice if you'd like to drill any word anyway."
     );
     return;
   }
 
   const word = dueQueue[currentIndex];
-  const qType = pickQuestionType(word);
-
   quizPanel.innerHTML = `
-    <div class="frame">
-      <div class="letterbox"></div>
-      <div class="frame-inner">
-        <div class="progress-label">Word ${currentIndex + 1} of ${dueQueue.length}</div>
-        <div class="subtitle-word">${word.armenian}</div>
-        <div class="subtitle-direction">type the English translation</div>
-        <div id="answerArea" style="width:100%;"></div>
-        <div class="feedback" id="feedback"></div>
-      </div>
-      <div class="letterbox"></div>
+    <div class="quiz-card">
+      <div class="progress-label">Word ${currentIndex + 1} of ${dueQueue.length}</div>
+      <div class="subtitle-word">${word.armenian}</div>
+      <div class="subtitle-direction">type the English translation</div>
+      <div id="answerArea" style="width:100%;"></div>
+      <div class="feedback" id="feedback"></div>
     </div>
   `;
-
-  const answerArea = document.getElementById("answerArea");
-  const feedback = document.getElementById("feedback");
-
-  if (qType === "mc") {
-    const distractors = buildDistractors(word, allWords, 3);
-    const options = [word.english, ...distractors].sort(() => Math.random() - 0.5);
-
-    const grid = document.createElement("div");
-    grid.className = "mc-grid";
-    options.forEach(opt => {
-      const btn = document.createElement("div");
-      btn.className = "mc-option";
-      btn.textContent = opt;
-      btn.addEventListener("click", async () => {
-        const correct = opt.toLowerCase() === word.english.toLowerCase();
-        document.querySelectorAll(".mc-option").forEach(o => {
-          o.classList.add("disabled");
-          if (o.textContent.toLowerCase() === word.english.toLowerCase()) o.classList.add("correct");
-          else if (o === btn && !correct) o.classList.add("wrong");
-        });
-        await handleAnswer(word, correct, feedback, answerArea);
-      });
-      grid.appendChild(btn);
-    });
-    answerArea.appendChild(grid);
-  } else {
-    const row = document.createElement("div");
-    row.className = "answer-row";
-    row.innerHTML = `
-      <input type="text" class="answer-input" id="typeInput" placeholder="Type in English…" autocomplete="off" autocapitalize="off" spellcheck="false" />
-      <button class="submit-btn" id="submitBtn">Check</button>
-    `;
-    answerArea.appendChild(row);
-
-    const input = document.getElementById("typeInput");
-    const submitBtn = document.getElementById("submitBtn");
-    input.focus();
-
-    const submit = async () => {
-      const val = input.value.trim().toLowerCase();
-      if (!val) return;
-      const correct = val === word.english.toLowerCase();
-      input.classList.add(correct ? "correct" : "wrong");
-      input.disabled = true;
-      submitBtn.disabled = true;
-      await handleAnswer(word, correct, feedback, answerArea);
-    };
-
-    submitBtn.addEventListener("click", submit);
-    input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
-  }
-}
-
-async function handleAnswer(word, correct, feedback, answerArea) {
-  feedback.textContent = correct ? "Correct!" : `Not quite — it means "${word.english}"`;
-  feedback.className = "feedback " + (correct ? "correct" : "wrong");
-
-  await updateWordAfterAnswer(word, correct);
-  sessionDone++;
-
-  const nextBtn = document.createElement("button");
-  nextBtn.className = "next-btn";
-  nextBtn.textContent = "Next →";
-  nextBtn.addEventListener("click", () => {
+  wireTypingQuestion(word, document.getElementById("answerArea"), document.getElementById("feedback"), async () => {
+    sessionDone++;
     currentIndex++;
     renderQuiz();
   });
-  answerArea.appendChild(nextBtn);
-
-  // Update local copy so multiple-choice distractor pool stays roughly fresh
-  const idx = allWords.findIndex(w => w.id === word.id);
-  if (idx >= 0) allWords[idx] = { ...allWords[idx], box: correct ? Math.min(5, (word.box||1)+1) : 1 };
 }
 
-// ---------- Import panel ----------
+function wireTypingQuestion(word, answerArea, feedback, onNext) {
+  const row = document.createElement("div");
+  row.className = "answer-row";
+  row.innerHTML = `
+    <input type="text" class="answer-input" id="typeInput" placeholder="Type in English…" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button class="btn" id="submitBtn">Check</button>
+  `;
+  answerArea.appendChild(row);
+  const input = document.getElementById("typeInput");
+  const submitBtn = document.getElementById("submitBtn");
+  input.focus();
+
+  const submit = async () => {
+    const val = input.value.trim().toLowerCase();
+    if (!val) return;
+    const correct = val === word.english.toLowerCase();
+    input.classList.add(correct ? "correct" : "wrong");
+    input.disabled = true;
+    submitBtn.disabled = true;
+
+    feedback.textContent = correct ? "Correct" : `Not quite — it means "${word.english}"`;
+    feedback.className = "feedback " + (correct ? "correct" : "wrong");
+
+    await updateWordAfterAnswer(word, correct);
+    const idx = allWords.findIndex(w => w.id === word.id);
+    if (idx >= 0) allWords[idx] = { ...allWords[idx], box: correct ? Math.min(5, (word.box||1)+1) : 1 };
+
+    const nextBtn = document.createElement("button");
+    nextBtn.className = "btn btn-ghost next-btn";
+    nextBtn.textContent = "Next →";
+    nextBtn.addEventListener("click", onNext);
+    answerArea.appendChild(nextBtn);
+  };
+
+  submitBtn.addEventListener("click", submit);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+}
+
+// ---------- Practice ----------
+async function renderPracticeList() {
+  allWords = await fetchAllWords();
+  practicePanel.innerHTML = `
+    <input type="text" class="search-input" id="practiceSearch" placeholder="Search words…" />
+    <div class="word-list" id="practiceListEl"></div>
+  `;
+  const listEl = document.getElementById("practiceListEl");
+
+  function draw(filter = "") {
+    const f = filter.trim().toLowerCase();
+    const filtered = allWords
+      .filter(w => !f || w.english.toLowerCase().includes(f) || (w.armenian || "").includes(f))
+      .sort((a, b) => (a.english || "").localeCompare(b.english || ""));
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div class="empty-state"><div class="small">No words match.</div></div>`;
+      return;
+    }
+    listEl.innerHTML = "";
+    filtered.forEach(w => {
+      const row = document.createElement("div");
+      row.className = "word-row";
+      row.innerHTML = `
+        <div class="pair"><span class="en">${w.english}</span><span class="hy">${w.armenian}</span></div>
+        <span class="box-badge">box ${w.box || 1}</span>
+      `;
+      row.addEventListener("click", () => renderPracticeDetail(w));
+      listEl.appendChild(row);
+    });
+  }
+
+  draw();
+  document.getElementById("practiceSearch").addEventListener("input", e => draw(e.target.value));
+}
+
+// ---------- Example sentence generator (offline, template-based, no API calls) ----------
+const SENTENCE_TEMPLATES = [
+  (w) => `Can you explain what "${w}" means?`,
+  (w) => `I heard the word "${w}" in the show and had to look it up.`,
+  (w) => `She used "${w}" twice in that conversation.`,
+  (w) => `That's a good example of how to use "${w}".`,
+  (w) => `I'm not sure I'm using "${w}" correctly here.`,
+  (w) => `The subtitles translated it as "${w}".`,
+  (w) => `He said something about "${w}" earlier.`,
+  (w) => `Try to use "${w}" in a sentence of your own.`,
+  (w) => `I keep forgetting what "${w}" means.`,
+  (w) => `That word, "${w}", came up again in the next episode.`
+];
+
+function generateExampleSentence(word) {
+  const template = SENTENCE_TEMPLATES[Math.floor(Math.random() * SENTENCE_TEMPLATES.length)];
+  return { en: template(word.english) };
+}
+
+function renderPracticeDetail(word) {
+  practicePanel.innerHTML = `
+    <div class="practice-detail">
+      <span class="back-link" id="backToList">← All words</span>
+      <div class="practice-pair">
+        <div class="hy-word">${word.armenian}</div>
+        <div class="en-word">${word.english}</div>
+      </div>
+      <div id="answerAreaPractice" style="width:100%;"></div>
+      <div class="feedback" id="feedbackPractice"></div>
+      <div class="sentence-block">
+        <button class="btn btn-ghost btn-block" id="sentenceBtn">Show example sentence</button>
+        <div id="sentenceContent"></div>
+        <div style="margin-top:10px; font-size:12px; color:var(--ink-faint); text-align:center;" id="sentenceReroll"></div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("backToList").addEventListener("click", renderPracticeList);
+
+  wireTypingQuestion(
+    word,
+    document.getElementById("answerAreaPractice"),
+    document.getElementById("feedbackPractice"),
+    () => renderPracticeDetail(word)
+  );
+
+  document.getElementById("sentenceBtn").addEventListener("click", () => {
+    const content = document.getElementById("sentenceContent");
+    const { en } = generateExampleSentence(word);
+    content.innerHTML = `
+      <div style="margin-top:16px;">
+        <div class="sentence-en">${en}</div>
+      </div>
+    `;
+    document.getElementById("sentenceBtn").textContent = "Show another";
+  });
+}
+
+// ---------- Import ----------
 function parseImportText(raw) {
-  // Heuristic parser for pasted Google Activity / history text.
-  // Looks for lines or pairs like "headache" / "գլխացավ" appearing close together.
   const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
   const pairs = [];
-
   const isShort = (s) => {
     const wc = s.trim().split(/\s+/).length;
     if (wc > 3) return false;
@@ -678,14 +655,10 @@ function parseImportText(raw) {
   const isEnglish = (s) => /^[a-zA-Z\s'-]+$/.test(s);
 
   for (let i = 0; i < lines.length - 1; i++) {
-    const a = lines[i];
-    const b = lines[i + 1];
+    const a = lines[i], b = lines[i + 1];
     if (!isShort(a) || !isShort(b)) continue;
-    if (isEnglish(a) && isArmenian(b)) {
-      pairs.push({ english: a, armenian: b });
-    } else if (isArmenian(a) && isEnglish(b)) {
-      pairs.push({ english: b, armenian: a });
-    }
+    if (isEnglish(a) && isArmenian(b)) pairs.push({ english: a, armenian: b });
+    else if (isArmenian(a) && isEnglish(b)) pairs.push({ english: b, armenian: a });
   }
   return pairs;
 }
@@ -694,21 +667,14 @@ async function importPairs(pairs) {
   const existing = await fetchAllWords();
   const existingLower = new Set(existing.map(w => (w.english || "").toLowerCase()));
   let added = 0;
-
   for (const pair of pairs) {
     const key = pair.english.toLowerCase();
     if (existingLower.has(key)) continue;
     existingLower.add(key);
     const now = Timestamp.fromDate(new Date());
     await addDoc(wordsRef, {
-      english: pair.english,
-      english_lower: key,
-      armenian: pair.armenian,
-      box: 1,
-      correctStreak: 0,
-      lastReviewed: null,
-      nextReview: now,
-      createdAt: now
+      english: pair.english, english_lower: key, armenian: pair.armenian,
+      box: 1, correctStreak: 0, lastReviewed: null, nextReview: now, createdAt: now
     });
     added++;
   }
@@ -718,13 +684,9 @@ async function importPairs(pairs) {
 function renderImportPanel() {
   importPanel.innerHTML = `
     <div class="import-box">
-      <div class="hint">
-        Paste copied text from your Google Translate app history (myactivity.google.com → search "Translate").
-        Word pairs are detected automatically — entries longer than 3 words or ending in punctuation are skipped.
-        No review step: matching pairs are added straight away.
-      </div>
+      <div class="hint">Paste copied text from your Google Translate app history (myactivity.google.com → search "Translate"). Pairs of 3 words or fewer are detected automatically; longer lines are skipped.</div>
       <textarea id="importText" placeholder="Paste your copied history here…"></textarea>
-      <button class="submit-btn" id="importBtn" style="width:100%; padding:14px 0;">Import words</button>
+      <button class="btn btn-accent btn-block" id="importBtn">Import words</button>
       <div class="import-result" id="importResult"></div>
     </div>
   `;
@@ -733,20 +695,20 @@ function renderImportPanel() {
     const pairs = parseImportText(raw);
     const result = document.getElementById("importResult");
     if (pairs.length === 0) {
-      result.style.color = "var(--fog-dim)";
+      result.style.color = "var(--ink-faint)";
       result.textContent = "No word pairs detected in that text.";
       return;
     }
-    result.style.color = "var(--fog-dim)";
+    result.style.color = "var(--ink-faint)";
     result.textContent = "Importing…";
     const added = await importPairs(pairs);
     result.style.color = "var(--correct)";
-    result.textContent = `Added ${added} new word${added === 1 ? "" : "s"} (${pairs.length - added} were already in your list).`;
+    result.textContent = `Added ${added} new word${added === 1 ? "" : "s"} (${pairs.length - added} already existed).`;
     document.getElementById("importText").value = "";
   });
 }
 
-// ---------- Words panel ----------
+// ---------- Words ----------
 async function renderWordsPanel() {
   const words = await fetchAllWords();
   const dueCount = words.filter(isDue).length;
@@ -754,7 +716,7 @@ async function renderWordsPanel() {
 
   wordsPanel.innerHTML = `
     <div class="stats-row">
-      <div class="stat-card"><div class="num">${words.length}</div><div class="label">Total words</div></div>
+      <div class="stat-card"><div class="num">${words.length}</div><div class="label">Total</div></div>
       <div class="stat-card"><div class="num">${dueCount}</div><div class="label">Due now</div></div>
       <div class="stat-card"><div class="num">${mastered}</div><div class="label">Mastered</div></div>
     </div>
@@ -777,6 +739,12 @@ async function renderWordsPanel() {
         <div class="pair"><span class="en">${w.english}</span><span class="hy">${w.armenian}</span></div>
         <span class="box-badge">box ${w.box || 1}</span>
       `;
+      row.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        document.querySelector('.tab[data-tab="practice"]').classList.add("active");
+        Object.entries(panels).forEach(([key, el]) => { el.style.display = key === "practice" ? "block" : "none"; });
+        renderPracticeDetail(w);
+      });
       listEl.appendChild(row);
     });
 }
