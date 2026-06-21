@@ -830,88 +830,53 @@ async function renderPracticeList() {
   document.getElementById("practiceSearch").addEventListener("input", e => draw(e.target.value));
 }
 
-// ---------- Example sentence generator (offline, no API calls) ----------
-// Tries to combine the target word with OTHER words you've already saved into
-// one natural-sounding sentence, since seeing several known words together is
-// more useful than seeing one word in isolation. Falls back to a generic
-// single-word template when no safe combination is available.
+// ---------- Example sentence generator ----------
+// Builds one natural English sentence using the word, then translates that whole
+// sentence into Armenian via a free translation API, so both lines are coherent
+// (rather than the old approach of trying to fake-combine words offline).
 
-// A short list of common feeling/state words used to decide which slot a word fits.
-// This is a heuristic, not real grammar - it only recognizes common patterns.
-const FEELING_WORDS = new Set([
-  "tired", "happy", "sad", "angry", "scared", "nervous", "excited", "bored",
-  "hungry", "thirsty", "sick", "sleepy", "confused", "worried", "relieved",
-  "anxious", "calm", "embarrassed", "proud", "jealous", "lonely", "stressed"
-]);
-
-// Words ending in these patterns are usually nouns we can safely drop into "a/an ___" or "the ___"
-function looksLikeNoun(word) {
-  const w = word.toLowerCase();
-  if (FEELING_WORDS.has(w)) return false; // feelings handled separately
-  // crude noun heuristics: most single short words captured from subtitles are nouns
-  if (/^[a-z]+$/.test(w) && !w.endsWith("ly") && !/(ing|ed)$/.test(w)) return true;
-  return false;
-}
-
-function startsWithVowelSound(word) {
-  return /^[aeiou]/i.test(word);
-}
-
-function article(word) {
-  return startsWithVowelSound(word) ? "an" : "a";
-}
-
-// Multi-word combiner: tries to build one sentence using the target word plus
-// one other randomly chosen word from the saved list, when their shapes fit.
-function tryCombinedSentence(word, pool) {
-  const candidates = pool.filter(w => w.id !== word.id);
-  if (candidates.length === 0) return null;
-  const other = candidates[Math.floor(Math.random() * candidates.length)];
-
-  const wordIsFeeling = FEELING_WORDS.has(word.english.toLowerCase());
-  const otherIsFeeling = FEELING_WORDS.has(other.english.toLowerCase());
-  const wordIsNoun = looksLikeNoun(word.english);
-  const otherIsNoun = looksLikeNoun(other.english);
-
-  // Pattern: "I have a [noun] and I feel [feeling]."
-  if (wordIsNoun && otherIsFeeling) {
-    return `I have ${article(word.english)} ${word.english}, so I feel ${other.english}.`;
-  }
-  if (wordIsFeeling && otherIsNoun) {
-    return `I feel ${word.english} because of the ${other.english}.`;
-  }
-  // Pattern: two nouns - "The [noun] and the [noun] were both on the table."
-  if (wordIsNoun && otherIsNoun) {
-    return `I mentioned both the ${word.english} and the ${other.english} in the same sentence.`;
-  }
-  // Pattern: two feelings
-  if (wordIsFeeling && otherIsFeeling) {
-    return `One moment I felt ${word.english}, and the next I felt ${other.english}.`;
-  }
-  return null; // no safe combination found
-}
-
-const SINGLE_WORD_TEMPLATES = [
-  (w) => `Can you explain what "${w}" means?`,
-  (w) => `I heard the word "${w}" in the show and had to look it up.`,
-  (w) => `She used "${w}" twice in that conversation.`,
-  (w) => `That's a good example of how to use "${w}".`,
-  (w) => `I'm not sure I'm using "${w}" correctly here.`,
-  (w) => `The subtitles translated it as "${w}".`,
-  (w) => `He said something about "${w}" earlier.`,
-  (w) => `Try to use "${w}" in a sentence of your own.`,
-  (w) => `I keep forgetting what "${w}" means.`,
-  (w) => `That word, "${w}", came up again in the next episode.`
+// A handful of natural carrier sentences. Words get dropped straight in, so these
+// are written to work with most short nouns/verbs/adjectives without needing to
+// know the word's part of speech in advance.
+const SENTENCE_TEMPLATES = [
+  (w) => `I didn't know what "${w}" meant until I looked it up.`,
+  (w) => `She explained what "${w}" means in this context.`,
+  (w) => `That's the first time I've heard "${w}" used like that.`,
+  (w) => `Try to remember the word "${w}" for next time.`,
+  (w) => `He used "${w}" three times in that scene.`,
+  (w) => `I want to use "${w}" correctly in a sentence.`,
+  (w) => `The subtitles showed "${w}" right before the scene changed.`,
+  (w) => `Can you give me another example using "${w}"?`
 ];
 
-function generateExampleSentence(word, pool) {
-  // Try a combined sentence first (more useful for retention), fall back if it doesn't fit
-  if (pool && pool.length > 1) {
-    const combined = tryCombinedSentence(word, pool);
-    if (combined) return { en: combined, combined: true };
+function buildEnglishSentence(word) {
+  const template = SENTENCE_TEMPLATES[Math.floor(Math.random() * SENTENCE_TEMPLATES.length)];
+  return template(word.english);
+}
+
+// Translates a sentence to Armenian via MyMemory - a free, no-signup, CORS-enabled
+// translation API. Returns null on failure so the caller can show English-only
+// rather than break. No third-party proxy is used; this talks to MyMemory directly.
+async function translateToArmenian(text) {
+  try {
+    const params = new URLSearchParams({ q: text, langpair: "en|hy" });
+    const res = await fetch(`https://api.mymemory.translated.net/get?${params}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.responseStatus === 200 && data.responseData?.translatedText) {
+        return data.responseData.translatedText;
+      }
+    }
+  } catch (err) {
+    // translation unavailable - caller falls back to English-only
   }
-  const template = SINGLE_WORD_TEMPLATES[Math.floor(Math.random() * SINGLE_WORD_TEMPLATES.length)];
-  return { en: template(word.english), combined: false };
+  return null;
+}
+
+async function generateExampleSentence(word) {
+  const en = buildEnglishSentence(word);
+  const hy = await translateToArmenian(en);
+  return { en, hy };
 }
 
 function renderPracticeDetail(word) {
@@ -955,16 +920,22 @@ function renderPracticeDetail(word) {
     () => renderPracticeDetail(word)
   );
 
-  document.getElementById("sentenceBtn").addEventListener("click", () => {
+  document.getElementById("sentenceBtn").addEventListener("click", async () => {
     const content = document.getElementById("sentenceContent");
-    const { en, combined } = generateExampleSentence(word, allWords);
+    const btn = document.getElementById("sentenceBtn");
+    btn.disabled = true;
+    content.innerHTML = `<div class="sentence-loading" style="margin-top:16px;">Generating…</div>`;
+
+    const { en, hy } = await generateExampleSentence(word);
+
     content.innerHTML = `
       <div style="margin-top:16px;">
         <div class="sentence-en">${en}</div>
-        ${combined ? `<div style="font-size:11px; color:var(--ink-faint); margin-top:6px;">↳ combines two of your saved words</div>` : ""}
+        ${hy ? `<div class="sentence-hy">${hy}</div>` : `<div style="font-size:11.5px; color:var(--ink-faint); margin-top:6px;">Translation unavailable right now — showing English only.</div>`}
       </div>
     `;
-    document.getElementById("sentenceBtn").textContent = "Show another";
+    btn.disabled = false;
+    btn.textContent = "Show another";
   });
 
   // ---- Edit ----
@@ -1229,11 +1200,15 @@ function renderImportPanel() {
 }
 
 // ---------- Words ----------
+let selectModeActive = false;
+let selectedWordIds = new Set();
+
 async function renderWordsPanel() {
   const words = await fetchAllWords();
   const dueCount = words.filter(isDue).length;
   const mastered = words.filter(w => (w.box || 1) >= 5).length;
   const leeches = words.filter(isLeech).sort((a, b) => (b.failCount || 0) - (a.failCount || 0));
+  selectedWordIds = new Set(); // reset selection whenever the panel re-renders
 
   wordsPanel.innerHTML = `
     <div class="stats-row">
@@ -1246,33 +1221,91 @@ async function renderWordsPanel() {
       <div class="section-title">Struggling words</div>
       <div class="word-list" id="leechListEl" style="margin-bottom:28px;"></div>
     ` : ""}
-    <div class="section-title">All words</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0 12px;">
+      <div class="section-title" style="margin:0;">All words</div>
+      <span class="ignore-link" id="selectModeToggle">${selectModeActive ? "Cancel" : "Select"}</span>
+    </div>
+    <div id="bulkActionsBar" style="display:none; margin-bottom:12px;"></div>
     <div class="word-list" id="wordListEl"></div>
   `;
 
-  function buildRow(w) {
+  function buildRow(w, selectable) {
     const row = document.createElement("div");
     row.className = "word-row";
     let badge = `<span class="box-badge">box ${w.box || 1}</span>`;
     if (isLeech(w)) badge = `<span class="box-badge" style="color:var(--wrong); border:1px solid var(--wrong-soft);">⚠ ${w.failCount}× missed</span>`;
     if (w.ignored) badge = `<span class="box-badge" style="color:var(--ink-faint);">known</span>`;
+
+    const checkboxHtml = selectable
+      ? `<input type="checkbox" class="word-select-checkbox" data-id="${w.id}" style="margin-right:10px; width:18px; height:18px; accent-color:var(--accent); flex-shrink:0;" />`
+      : "";
+
     row.innerHTML = `
+      ${checkboxHtml}
       <div class="pair"><span class="en">${w.english}</span><span class="hy">${w.armenian}</span></div>
       ${badge}
     `;
     if (w.ignored) row.style.opacity = "0.55";
-    row.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-      document.querySelector('.tab[data-tab="practice"]').classList.add("active");
-      Object.entries(panels).forEach(([key, el]) => { el.style.display = key === "practice" ? "block" : "none"; });
-      renderPracticeDetail(w);
-    });
+
+    if (selectable) {
+      const checkbox = row.querySelector(".word-select-checkbox");
+      checkbox.addEventListener("click", e => e.stopPropagation());
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selectedWordIds.add(w.id);
+        else selectedWordIds.delete(w.id);
+        updateBulkActionsBar();
+      });
+      row.addEventListener("click", () => { checkbox.checked = !checkbox.checked; checkbox.dispatchEvent(new Event("change")); });
+    } else {
+      row.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        document.querySelector('.tab[data-tab="practice"]').classList.add("active");
+        Object.entries(panels).forEach(([key, el]) => { el.style.display = key === "practice" ? "block" : "none"; });
+        renderPracticeDetail(w);
+      });
+    }
     return row;
   }
 
+  function updateBulkActionsBar() {
+    const bar = document.getElementById("bulkActionsBar");
+    if (!selectModeActive) { bar.style.display = "none"; return; }
+    bar.style.display = "block";
+    const count = selectedWordIds.size;
+    bar.innerHTML = `
+      <button class="btn" id="bulkDeleteBtn" style="background:var(--wrong); color:var(--bg);" ${count === 0 ? "disabled" : ""}>
+        Delete ${count > 0 ? count : ""} selected
+      </button>
+      <div id="bulkDeleteConfirm" style="margin-top:10px;"></div>
+    `;
+    document.getElementById("bulkDeleteBtn").addEventListener("click", () => {
+      const confirmEl = document.getElementById("bulkDeleteConfirm");
+      confirmEl.innerHTML = `
+        <div style="font-size:13px; color:var(--ink-soft); margin-bottom:10px;">Delete ${count} word${count === 1 ? "" : "s"}? This can't be undone.</div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn" id="confirmBulkDeleteBtn" style="flex:1; background:var(--wrong); color:var(--bg);">Delete permanently</button>
+          <button class="btn btn-ghost" id="cancelBulkDeleteBtn" style="flex:1;">Cancel</button>
+        </div>
+      `;
+      document.getElementById("cancelBulkDeleteBtn").addEventListener("click", () => { confirmEl.innerHTML = ""; });
+      document.getElementById("confirmBulkDeleteBtn").addEventListener("click", async () => {
+        const ids = [...selectedWordIds];
+        for (const id of ids) {
+          await deleteDoc(doc(db, "words", id));
+        }
+        renderWordsPanel();
+      });
+    });
+  }
+
+  document.getElementById("selectModeToggle").addEventListener("click", () => {
+    selectModeActive = !selectModeActive;
+    renderWordsPanel();
+  });
+
   if (leeches.length > 0) {
     const leechListEl = document.getElementById("leechListEl");
-    leeches.forEach(w => leechListEl.appendChild(buildRow(w)));
+    leeches.forEach(w => leechListEl.appendChild(buildRow(w, selectModeActive)));
   }
 
   const listEl = document.getElementById("wordListEl");
@@ -1283,7 +1316,9 @@ async function renderWordsPanel() {
 
   words
     .sort((a, b) => (a.english || "").localeCompare(b.english || ""))
-    .forEach(w => listEl.appendChild(buildRow(w)));
+    .forEach(w => listEl.appendChild(buildRow(w, selectModeActive)));
+
+  updateBulkActionsBar();
 }
 
 // ---------- Auth gating ----------
