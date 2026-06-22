@@ -536,6 +536,13 @@ document.querySelectorAll(".tab").forEach(tab => {
     if (target === "import") renderImportPanel();
     if (target === "practice") startPracticeSession();
     if (target === "match") renderMatchGame();
+    if (target === "quiz") {
+      if (allWords.length === 0) {
+        renderEmptyState(quizPanel, "No words yet", "Translate something English → Armenian on translate.google.com with the extension installed, or paste your phone history in the Import tab.");
+      } else {
+        renderQuizModePicker();
+      }
+    }
   });
 });
 
@@ -559,6 +566,16 @@ async function renderStreak() {
 }
 
 const MAX_QUIZ_SESSION_SIZE = 15;
+
+// Quiz direction mode, chosen from the sub-menu before a session starts.
+// "mixed" re-rolls per question; "en-to-hy" and "hy-to-en" stay fixed for the whole session.
+let quizDirectionMode = null;
+
+function resolveQuizDirection() {
+  if (quizDirectionMode === "en-to-hy") return "en-to-hy";
+  if (quizDirectionMode === "hy-to-en") return "hy-to-en";
+  return Math.random() < 0.5 ? "hy-to-en" : "en-to-hy"; // mixed
+}
 
 async function loadQueue() {
   allWords = await fetchAllWords();
@@ -590,6 +607,34 @@ function renderEmptyState(container, message, sub, retakeFn) {
   if (retakeFn) {
     document.getElementById("retakeBtn").addEventListener("click", retakeFn);
   }
+}
+
+function renderQuizModePicker() {
+  quizPanel.innerHTML = `
+    <div class="quiz-card" style="padding:36px 28px;">
+      <div class="progress-label" style="margin-bottom:18px;">Choose a quiz mode</div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <button class="btn btn-ghost btn-block" id="modeEnToHy" style="text-align:left; padding-left:18px;">
+          English → Armenian<br><span style="font-size:12px; color:var(--ink-faint); font-weight:400;">See English, type Armenian</span>
+        </button>
+        <button class="btn btn-ghost btn-block" id="modeHyToEn" style="text-align:left; padding-left:18px;">
+          Armenian → English<br><span style="font-size:12px; color:var(--ink-faint); font-weight:400;">See Armenian, type English</span>
+        </button>
+        <button class="btn btn-accent btn-block" id="modeMixed" style="text-align:left; padding-left:18px;">
+          Mixed<br><span style="font-size:12px; color:rgba(0,0,0,0.6); font-weight:400;">Both directions, picked at random</span>
+        </button>
+      </div>
+    </div>
+  `;
+  document.getElementById("modeEnToHy").addEventListener("click", () => startQuizWithMode("en-to-hy"));
+  document.getElementById("modeHyToEn").addEventListener("click", () => startQuizWithMode("hy-to-en"));
+  document.getElementById("modeMixed").addEventListener("click", () => startQuizWithMode("mixed"));
+}
+
+async function startQuizWithMode(mode) {
+  quizDirectionMode = mode;
+  await loadQueue();
+  renderQuiz();
 }
 
 async function renderQuiz() {
@@ -630,7 +675,7 @@ function advanceSession() {
 }
 
 function renderTypeStep(word) {
-  const direction = Math.random() < 0.5 ? "hy-to-en" : "en-to-hy";
+  const direction = resolveQuizDirection();
   const promptWord = direction === "hy-to-en" ? word.armenian : word.english;
   const promptFont = direction === "hy-to-en" ? "font-family:'Noto Sans Armenian',sans-serif;" : "";
   const directionLabel = direction === "hy-to-en" ? "type the English translation" : "type the Armenian translation";
@@ -652,7 +697,7 @@ function renderTypeStep(word) {
 // Multiple choice for new/shaky words - recognition is easier than recall,
 // so this is how a word is introduced before typing is ever demanded.
 function renderChoiceStep(word) {
-  const direction = Math.random() < 0.5 ? "hy-to-en" : "en-to-hy";
+  const direction = resolveQuizDirection();
   const promptWord = direction === "hy-to-en" ? word.armenian : word.english;
   const promptFont = direction === "hy-to-en" ? "font-family:'Noto Sans Armenian',sans-serif;" : "";
   const directionLabel = direction === "hy-to-en" ? "choose the English translation" : "choose the Armenian translation";
@@ -1222,17 +1267,60 @@ function parseImportText(raw) {
   return pairs;
 }
 
+// Note: words are normalized to their dictionary base form (e.g. "ruined" -> "ruin")
+// automatically by a Firebase Cloud Function that runs whenever a new word document
+// is created, so this applies to words from the extension, Import, or anywhere else -
+// no separate client-side lemmatization call needed here.
+// Normalizes a batch of English words/phrases to their dictionary base form
+// (e.g. "ruined" -> "ruin", "cups" -> "cup") using a real AI model via Puter.js
+// (free, no API key). Falls back to the original words unchanged if the AI call
+// fails, so import still works even if normalization doesn't.
+async function lemmatizeWords(englishWords) {
+  if (englishWords.length === 0) return englishWords;
+  const prompt = `For each English word or short phrase below, give its dictionary base form (e.g. "ruined" -> "ruin", "cups" -> "cup", "running" -> "run"). If it's already in base form, return it unchanged. Keep short phrases like "a whirl" as phrases unless the core word has an obvious base form. Respond with ONLY a JSON array of strings, same order, same length as the input, nothing else - no markdown, no explanation.
+
+Input: ${JSON.stringify(englishWords)}`;
+
+  try {
+    const response = await puter.ai.chat(prompt, { model: "claude-sonnet-4-6" });
+    let text = "";
+    if (typeof response === "string") {
+      text = response;
+    } else if (response?.message?.content) {
+      const content = response.message.content;
+      text = Array.isArray(content) ? (content[0]?.text || "") : content;
+    } else if (response?.text) {
+      text = response.text;
+    }
+    const cleaned = text.trim().replace(/^```json\s*|```\s*$/g, "");
+    const result = JSON.parse(cleaned);
+    if (Array.isArray(result) && result.length === englishWords.length) {
+      return result.map((w, i) => (typeof w === "string" && w.trim()) ? w.trim() : englishWords[i]);
+    }
+    return englishWords;
+  } catch (err) {
+    console.error("[Lemmatize] Failed, using original words:", err);
+    return englishWords;
+  }
+}
+
 async function importPairs(pairs) {
   const existing = await fetchAllWords();
   const existingLower = new Set(existing.map(w => (w.english || "").toLowerCase()));
+
+  // Normalize all English sides to base form in one batched AI call before saving
+  const baseForms = await lemmatizeWords(pairs.map(p => p.english));
+
   let added = 0;
-  for (const pair of pairs) {
-    const key = pair.english.toLowerCase();
+  for (let i = 0; i < pairs.length; i++) {
+    const pair = pairs[i];
+    const normalizedEnglish = baseForms[i] || pair.english;
+    const key = normalizedEnglish.toLowerCase();
     if (existingLower.has(key)) continue;
     existingLower.add(key);
     const now = Timestamp.fromDate(new Date());
     await addDoc(wordsRef, {
-      english: pair.english, english_lower: key, armenian: pair.armenian,
+      english: normalizedEnglish, english_lower: key, armenian: pair.armenian,
       box: 1, correctStreak: 0, lastReviewed: null, nextReview: now, createdAt: now
     });
     added++;
@@ -1243,7 +1331,7 @@ async function importPairs(pairs) {
 function renderImportPanel() {
   importPanel.innerHTML = `
     <div class="import-box">
-      <div class="hint">Paste copied text from your Google Translate app history (myactivity.google.com → search "Translate"). Pairs of 3 words or fewer are detected automatically; longer lines are skipped.</div>
+      <div class="hint">Paste copied text from your Google Translate app history (myactivity.google.com → search "Translate"). Pairs of 3 words or fewer are detected automatically; longer lines are skipped. Words are normalized to their base form (e.g. "ruined" → "ruin") before saving.</div>
       <textarea id="importText" placeholder="Paste your copied history here…"></textarea>
       <button class="btn btn-accent btn-block" id="importBtn">Import words</button>
       <div class="import-result" id="importResult"></div>
@@ -1259,7 +1347,7 @@ function renderImportPanel() {
       return;
     }
     result.style.color = "var(--ink-faint)";
-    result.textContent = "Importing…";
+    result.textContent = "Normalizing and importing…";
     const added = await importPairs(pairs);
     result.style.color = "var(--correct)";
     result.textContent = `Added ${added} new word${added === 1 ? "" : "s"} (${pairs.length - added} already existed).`;
@@ -1340,12 +1428,30 @@ async function renderWordsPanel() {
     if (!selectModeActive) { bar.style.display = "none"; return; }
     bar.style.display = "block";
     const count = selectedWordIds.size;
+    const allSelected = count > 0 && count === words.length;
     bar.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+        <input type="checkbox" id="selectAllCheckbox" style="width:18px; height:18px; accent-color:var(--accent);" ${allSelected ? "checked" : ""} />
+        <label for="selectAllCheckbox" style="font-size:13px; color:var(--ink-soft); cursor:pointer;">Select all (${words.length})</label>
+      </div>
       <button class="btn" id="bulkDeleteBtn" style="background:var(--wrong); color:var(--bg);" ${count === 0 ? "disabled" : ""}>
         Delete ${count > 0 ? count : ""} selected
       </button>
       <div id="bulkDeleteConfirm" style="margin-top:10px;"></div>
     `;
+
+    document.getElementById("selectAllCheckbox").addEventListener("change", (e) => {
+      if (e.target.checked) {
+        words.forEach(w => selectedWordIds.add(w.id));
+      } else {
+        selectedWordIds.clear();
+      }
+      document.querySelectorAll(".word-select-checkbox").forEach(cb => {
+        cb.checked = selectedWordIds.has(cb.dataset.id);
+      });
+      updateBulkActionsBar();
+    });
+
     document.getElementById("bulkDeleteBtn").addEventListener("click", () => {
       const confirmEl = document.getElementById("bulkDeleteConfirm");
       confirmEl.innerHTML = `
@@ -1397,8 +1503,12 @@ async function startApp() {
   mainApp.style.display = "block";
   loginScreen.style.display = "none";
   await renderStreak();
-  await loadQueue();
-  await renderQuiz();
+  allWords = await fetchAllWords(); // populate word count for empty-state checks before a mode is chosen
+  if (allWords.length === 0) {
+    renderEmptyState(quizPanel, "No words yet", "Translate something English → Armenian on translate.google.com with the extension installed, or paste your phone history in the Import tab.");
+  } else {
+    renderQuizModePicker();
+  }
 }
 
 onAuthStateChanged(auth, (user) => {
