@@ -964,7 +964,7 @@ async function loadBlankQuestion(word, onNext) {
       if (onNext) onNext();
       else loadBlankQuestion(word, onNext);
     });
-    document.querySelector(".quiz-card").appendChild(nextBtn);
+    area.querySelector(".quiz-card").appendChild(nextBtn);
   };
 
   checkBtn.addEventListener("click", submit);
