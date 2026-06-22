@@ -146,12 +146,13 @@
     color: var(--bg);
     border: none;
     border-radius: 10px;
-    padding: 0 22px;
+    padding: 13px 24px;
     font-weight: 600;
-    font-size: 14px;
+    font-size: 15px;
     cursor: pointer;
     font-family: 'Inter', sans-serif;
     transition: opacity 0.15s ease;
+    min-height: 46px;
   }
   .btn:hover { opacity: 0.85; }
   .btn:disabled { opacity: 0.35; cursor: default; }
@@ -168,7 +169,7 @@
   .feedback.correct { color: var(--correct); }
   .feedback.wrong { color: var(--wrong); }
 
-  .next-btn { margin-top: 16px; }
+  .next-btn { margin-top: 16px; width: 100%; }
   .ignore-link {
     font-size: 12px;
     color: var(--ink-faint);
@@ -564,15 +565,29 @@ async function loadQueue() {
   currentIndex = 0;
 }
 
-function renderEmptyState(container, message, sub) {
+// Rebuilds the queue from every non-ignored word (not just ones currently due),
+// so "Retake quiz" always has something to review even right after finishing.
+async function retakeQuiz() {
+  allWords = await fetchAllWords();
+  dueQueue = allWords.filter(w => !w.ignored).sort(() => Math.random() - 0.5);
+  sessionDone = 0;
+  currentIndex = 0;
+  renderQuiz();
+}
+
+function renderEmptyState(container, message, sub, retakeFn) {
   container.innerHTML = `
     <div class="quiz-card">
       <div class="empty-state">
         <div class="big">${message}</div>
         <div class="small">${sub}</div>
       </div>
+      ${retakeFn ? `<button class="btn btn-accent btn-block" id="retakeBtn" style="margin-top:20px;">Retake quiz</button>` : ""}
     </div>
   `;
+  if (retakeFn) {
+    document.getElementById("retakeBtn").addEventListener("click", retakeFn);
+  }
 }
 
 async function renderQuiz() {
@@ -586,8 +601,9 @@ async function renderQuiz() {
       quizPanel,
       sessionDone > 0 ? "Episode complete" : "All caught up",
       sessionDone > 0
-        ? `You reviewed ${sessionDone} word${sessionDone === 1 ? "" : "s"}. Come back tomorrow for the next one — or visit Practice to drill any word anytime.`
-        : "No words are due for review right now. Visit Practice if you'd like to drill any word anyway."
+        ? `You reviewed ${sessionDone} word${sessionDone === 1 ? "" : "s"}. Come back tomorrow for the next one — or retake now to review again.`
+        : "No words are due for review right now. Retake anyway, or visit Practice to drill any word.",
+      retakeQuiz
     );
     return;
   }
@@ -843,8 +859,16 @@ EN: <the english sentence>
 HY: <the armenian translation>`;
 
   try {
-    const response = await puter.ai.chat(prompt, { model: "anthropic/claude-opus-4-8" });
-    const text = typeof response === "string" ? response : (response?.message?.content || response?.toString?.() || "");
+    const response = await puter.ai.chat(prompt, { model: "claude-sonnet-4-6" });
+    let text = "";
+    if (typeof response === "string") {
+      text = response;
+    } else if (response?.message?.content) {
+      const content = response.message.content;
+      text = Array.isArray(content) ? (content[0]?.text || "") : content;
+    } else if (response?.text) {
+      text = response.text;
+    }
     const enMatch = text.match(/EN:\s*(.+)/);
     const hyMatch = text.match(/HY:\s*(.+)/);
     const full = enMatch ? enMatch[1].trim() : null;
@@ -858,6 +882,7 @@ HY: <the armenian translation>`;
 
     return { blanked, hy, failed: false };
   } catch (err) {
+    console.error("[Fill-in-the-blank] Generation failed:", err);
     return {
       blanked: `(Couldn't generate a sentence right now — try again in a moment.)`,
       hy: null,
