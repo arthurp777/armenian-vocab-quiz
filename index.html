@@ -534,7 +534,7 @@ document.querySelectorAll(".tab").forEach(tab => {
     Object.entries(panels).forEach(([key, el]) => { el.style.display = key === target ? "block" : "none"; });
     if (target === "words") renderWordsPanel();
     if (target === "import") renderImportPanel();
-    if (target === "practice") renderPracticeList();
+    if (target === "practice") startPracticeSession();
     if (target === "match") renderMatchGame();
   });
 });
@@ -558,9 +558,11 @@ async function renderStreak() {
   }
 }
 
+const MAX_QUIZ_SESSION_SIZE = 15;
+
 async function loadQueue() {
   allWords = await fetchAllWords();
-  dueQueue = allWords.filter(isDue).sort(() => Math.random() - 0.5);
+  dueQueue = allWords.filter(isDue).sort(() => Math.random() - 0.5).slice(0, MAX_QUIZ_SESSION_SIZE);
   sessionDone = 0;
   currentIndex = 0;
 }
@@ -569,7 +571,7 @@ async function loadQueue() {
 // so "Retake quiz" always has something to review even right after finishing.
 async function retakeQuiz() {
   allWords = await fetchAllWords();
-  dueQueue = allWords.filter(w => !w.ignored).sort(() => Math.random() - 0.5);
+  dueQueue = allWords.filter(w => !w.ignored).sort(() => Math.random() - 0.5).slice(0, MAX_QUIZ_SESSION_SIZE);
   sessionDone = 0;
   currentIndex = 0;
   renderQuiz();
@@ -812,39 +814,61 @@ function wireTypingQuestion(word, answerArea, feedback, onNext, direction = "hy-
 }
 
 // ---------- Practice ----------
-async function renderPracticeList() {
+// ---------- Practice session (auto-selects your weakest words) ----------
+let practiceQueue = [];
+let practiceIndex = 0;
+const PRACTICE_BATCH_SIZE = 10;
+
+// Ranks words so low box level and high fail count both push a word toward the
+// front (worse score = practiced sooner), with a little randomness mixed in so
+// the same exact order doesn't repeat every single time.
+function practiceWeaknessScore(word) {
+  const box = word.box || 1;
+  const fails = word.failCount || 0;
+  return box - fails * 0.75 + Math.random() * 0.5;
+}
+
+async function startPracticeSession() {
   allWords = await fetchAllWords();
-  practicePanel.innerHTML = `
-    <input type="text" class="search-input" id="practiceSearch" placeholder="Search words…" />
-    <div class="word-list" id="practiceListEl"></div>
-  `;
-  const listEl = document.getElementById("practiceListEl");
+  const eligible = allWords.filter(w => !w.ignored);
 
-  function draw(filter = "") {
-    const f = filter.trim().toLowerCase();
-    const filtered = allWords
-      .filter(w => !f || w.english.toLowerCase().includes(f) || (w.armenian || "").includes(f))
-      .sort((a, b) => (a.english || "").localeCompare(b.english || ""));
-
-    if (filtered.length === 0) {
-      listEl.innerHTML = `<div class="empty-state"><div class="small">No words match.</div></div>`;
-      return;
-    }
-    listEl.innerHTML = "";
-    filtered.forEach(w => {
-      const row = document.createElement("div");
-      row.className = "word-row";
-      row.innerHTML = `
-        <div class="pair"><span class="en">${w.english}</span><span class="hy">${w.armenian}</span></div>
-        <span class="box-badge">box ${w.box || 1}</span>
-      `;
-      row.addEventListener("click", () => renderPracticeDetail(w));
-      listEl.appendChild(row);
-    });
+  if (eligible.length === 0) {
+    renderEmptyState(practicePanel, "No words yet", "Translate something English → Armenian on translate.google.com with the extension installed, or paste your phone history in the Import tab.");
+    return;
   }
 
-  draw();
-  document.getElementById("practiceSearch").addEventListener("input", e => draw(e.target.value));
+  practiceQueue = [...eligible]
+    .sort((a, b) => practiceWeaknessScore(a) - practiceWeaknessScore(b))
+    .slice(0, PRACTICE_BATCH_SIZE);
+  practiceIndex = 0;
+
+  renderPracticeStep();
+}
+
+function renderPracticeStep() {
+  if (practiceIndex >= practiceQueue.length) {
+    renderEmptyState(
+      practicePanel,
+      "Session complete",
+      `You practiced ${practiceQueue.length} word${practiceQueue.length === 1 ? "" : "s"} in context.`,
+      startPracticeSession
+    );
+    return;
+  }
+
+  const word = practiceQueue[practiceIndex];
+  practicePanel.innerHTML = `
+    <div class="practice-detail">
+      <div class="progress-label" style="margin-bottom:18px;">Word ${practiceIndex + 1} of ${practiceQueue.length}</div>
+      <div id="blankQuizArea"></div>
+    </div>
+  `;
+  loadBlankQuestion(word, advancePracticeSession);
+}
+
+function advancePracticeSession() {
+  practiceIndex++;
+  renderPracticeStep();
 }
 
 // ---------- Example sentence generator (fill-in-the-blank) ----------
@@ -887,7 +911,7 @@ async function generateBlankQuestion(word) {
 
 // Loads a fill-in-the-blank question into the Practice view automatically (no
 // button click needed) and wires up checking + a "New sentence" retry action.
-async function loadBlankQuestion(word) {
+async function loadBlankQuestion(word, onNext) {
   const area = document.getElementById("blankQuizArea");
   if (!area) return;
   area.innerHTML = `<div class="sentence-loading">Writing a sentence…</div>`;
@@ -899,7 +923,7 @@ async function loadBlankQuestion(word) {
       <div class="sentence-error">${blanked}</div>
       <button class="btn btn-ghost btn-block" id="retrySentenceBtn" style="margin-top:14px;">Try again</button>
     `;
-    document.getElementById("retrySentenceBtn").addEventListener("click", () => loadBlankQuestion(word));
+    document.getElementById("retrySentenceBtn").addEventListener("click", () => loadBlankQuestion(word, onNext));
     return;
   }
 
@@ -935,8 +959,11 @@ async function loadBlankQuestion(word) {
 
     const nextBtn = document.createElement("button");
     nextBtn.className = "btn btn-accent next-btn";
-    nextBtn.textContent = "New sentence →";
-    nextBtn.addEventListener("click", () => loadBlankQuestion(word));
+    nextBtn.textContent = onNext ? "Next →" : "New sentence →";
+    nextBtn.addEventListener("click", () => {
+      if (onNext) onNext();
+      else loadBlankQuestion(word, onNext);
+    });
     document.querySelector(".quiz-card").appendChild(nextBtn);
   };
 
@@ -948,7 +975,7 @@ function renderPracticeDetail(word) {
   const ignoreLabel = word.ignored ? "Add back to Quiz rotation" : "I know this — remove from Quiz";
   practicePanel.innerHTML = `
     <div class="practice-detail">
-      <span class="back-link" id="backToList">← All words</span>
+      <span class="back-link" id="backToList">← Back to Words</span>
       ${word.ignored ? `<div style="font-size:11px; color:var(--ink-faint); margin-bottom:14px;">Excluded from daily Quiz</div>` : ""}
       <div id="editForm" style="display:none;"></div>
       <div id="blankQuizArea"></div>
@@ -961,7 +988,12 @@ function renderPracticeDetail(word) {
     </div>
   `;
 
-  document.getElementById("backToList").addEventListener("click", renderPracticeList);
+  document.getElementById("backToList").addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelector('.tab[data-tab="words"]').classList.add("active");
+    Object.entries(panels).forEach(([key, el]) => { el.style.display = key === "words" ? "block" : "none"; });
+    renderWordsPanel();
+  });
 
   document.getElementById("toggleIgnoreBtn").addEventListener("click", async () => {
     const newIgnored = !word.ignored;
@@ -1035,7 +1067,10 @@ function renderPracticeDetail(word) {
     document.getElementById("cancelDeleteBtn").addEventListener("click", () => { confirmEl.style.display = "none"; });
     document.getElementById("confirmDeleteBtn").addEventListener("click", async () => {
       await deleteDoc(doc(db, "words", word.id));
-      renderPracticeList();
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      document.querySelector('.tab[data-tab="words"]').classList.add("active");
+      Object.entries(panels).forEach(([key, el]) => { el.style.display = key === "words" ? "block" : "none"; });
+      renderWordsPanel();
     });
   });
 }
