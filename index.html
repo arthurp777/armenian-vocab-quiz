@@ -381,6 +381,7 @@
       <div class="logo">reruns</div>
       <div style="display:flex; align-items:center; gap:14px;">
         <div class="streak-line"><span class="count" id="streakCount">0</span> day series</div>
+        <span id="refreshBtn" title="Refresh" style="font-size:13px; color:var(--ink-faint); cursor:pointer; font-weight:600;">↻ Refresh</span>
         <span id="logoutBtn" style="font-size:12px; color:var(--ink-faint); cursor:pointer; font-weight:600;">Sign out</span>
       </div>
     </div>
@@ -389,7 +390,6 @@
 
     <div class="tabs">
       <div class="tab active" data-tab="quiz">Quiz</div>
-      <div class="tab" data-tab="practice">Practice</div>
       <div class="tab" data-tab="match">Match</div>
       <div class="tab" data-tab="words">Words</div>
       <div class="tab" data-tab="import">Import</div>
@@ -534,7 +534,6 @@ document.querySelectorAll(".tab").forEach(tab => {
     Object.entries(panels).forEach(([key, el]) => { el.style.display = key === target ? "block" : "none"; });
     if (target === "words") renderWordsPanel();
     if (target === "import") renderImportPanel();
-    if (target === "practice") startPracticeSession();
     if (target === "match") renderMatchGame();
     if (target === "quiz") {
       if (allWords.length === 0) {
@@ -795,9 +794,13 @@ function levenshtein(a, b) {
 
 // Allows answers with a small typo to still count as correct - a single mistyped
 // letter usually means the person knew the word, not that they forgot it.
+function stripLeadingArticle(s) {
+  return s.trim().replace(/^(a|an|the)\s+/i, "").trim();
+}
+
 function isCloseEnough(typed, target) {
-  const a = typed.trim().toLowerCase();
-  const b = target.trim().toLowerCase();
+  const a = stripLeadingArticle(typed).toLowerCase();
+  const b = stripLeadingArticle(target).toLowerCase();
   if (a === b) return true;
   const maxAllowedDistance = b.length <= 3 ? 0 : b.length <= 7 ? 1 : 2;
   return levenshtein(a, b) <= maxAllowedDistance;
@@ -858,172 +861,20 @@ function wireTypingQuestion(word, answerArea, feedback, onNext, direction = "hy-
   input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
 }
 
-// ---------- Practice ----------
-// ---------- Practice session (auto-selects your weakest words) ----------
-let practiceQueue = [];
-let practiceIndex = 0;
-const PRACTICE_BATCH_SIZE = 10;
-
-// Ranks words so low box level and high fail count both push a word toward the
-// front (worse score = practiced sooner), with a little randomness mixed in so
-// the same exact order doesn't repeat every single time.
-function practiceWeaknessScore(word) {
-  const box = word.box || 1;
-  const fails = word.failCount || 0;
-  return box - fails * 0.75 + Math.random() * 0.5;
-}
-
-async function startPracticeSession() {
-  allWords = await fetchAllWords();
-  const eligible = allWords.filter(w => !w.ignored);
-
-  if (eligible.length === 0) {
-    renderEmptyState(practicePanel, "No words yet", "Translate something English → Armenian on translate.google.com with the extension installed, or paste your phone history in the Import tab.");
-    return;
-  }
-
-  practiceQueue = [...eligible]
-    .sort((a, b) => practiceWeaknessScore(a) - practiceWeaknessScore(b))
-    .slice(0, PRACTICE_BATCH_SIZE);
-  practiceIndex = 0;
-
-  renderPracticeStep();
-}
-
-function renderPracticeStep() {
-  if (practiceIndex >= practiceQueue.length) {
-    renderEmptyState(
-      practicePanel,
-      "Session complete",
-      `You practiced ${practiceQueue.length} word${practiceQueue.length === 1 ? "" : "s"} in context.`,
-      startPracticeSession
-    );
-    return;
-  }
-
-  const word = practiceQueue[practiceIndex];
-  practicePanel.innerHTML = `
-    <div class="practice-detail">
-      <div class="progress-label" style="margin-bottom:18px;">Word ${practiceIndex + 1} of ${practiceQueue.length}</div>
-      <div id="blankQuizArea"></div>
-    </div>
-  `;
-  loadBlankQuestion(word, advancePracticeSession);
-}
-
-function advancePracticeSession() {
-  practiceIndex++;
-  renderPracticeStep();
-}
-
-// ---------- Example sentence generator (fill-in-the-blank) ----------
-// Builds a fill-in-the-blank question using a real AI model (via Puter.js, free
-// and keyless) so the sentence is genuinely natural and grammatically correct for
-// whatever part of speech the word actually is - something fixed templates can't
-// reliably do. Falls back to a simple, clearly-labeled placeholder if the AI call
-// fails, so the feature degrades instead of breaking.
-async function generateBlankQuestion(word) {
-  const prompt = `Write one short, natural English sentence (max 12 words) that uses the word "${word.english}" in context, the way it might appear in everyday spoken dialogue or TV subtitles. Respond with ONLY the sentence, nothing else - no labels, no quotes, no extra text.`;
-
-  try {
-    const response = await puter.ai.chat(prompt, { model: "claude-sonnet-4-6" });
-    let text = "";
-    if (typeof response === "string") {
-      text = response;
-    } else if (response?.message?.content) {
-      const content = response.message.content;
-      text = Array.isArray(content) ? (content[0]?.text || "") : content;
-    } else if (response?.text) {
-      text = response.text;
-    }
-    const full = text.trim().replace(/^["']|["']$/g, "");
-
-    if (!full) throw new Error("No sentence returned");
-
-    const re = new RegExp(word.english.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-    if (!re.test(full)) throw new Error("Word not found in generated sentence");
-    const blanked = full.replace(re, "____");
-
-    return { blanked, failed: false };
-  } catch (err) {
-    console.error("[Fill-in-the-blank] Generation failed:", err);
-    return {
-      blanked: `Couldn't generate a sentence right now — try again in a moment.`,
-      failed: true
-    };
-  }
-}
-
-// Loads a fill-in-the-blank question into the Practice view automatically (no
-// button click needed) and wires up checking + a "New sentence" retry action.
-async function loadBlankQuestion(word, onNext) {
-  const area = document.getElementById("blankQuizArea");
-  if (!area) return;
-  area.innerHTML = `<div class="sentence-loading">Writing a sentence…</div>`;
-
-  const { blanked, failed } = await generateBlankQuestion(word);
-
-  if (failed) {
-    area.innerHTML = `
-      <div class="sentence-error">${blanked}</div>
-      <button class="btn btn-ghost btn-block" id="retrySentenceBtn" style="margin-top:14px;">Try again</button>
-    `;
-    document.getElementById("retrySentenceBtn").addEventListener("click", () => loadBlankQuestion(word, onNext));
-    return;
-  }
-
-  area.innerHTML = `
-    <div class="quiz-card" style="padding:36px 28px;">
-      <div class="subtitle-word" style="font-size:24px; line-height:1.4;">${blanked}</div>
-      <div class="answer-row" style="margin-top:22px;">
-        <input type="text" class="answer-input" id="blankInput" placeholder="Type the missing word…" autocomplete="off" autocapitalize="off" spellcheck="false" />
-        <button class="btn" id="blankCheckBtn">Check</button>
-      </div>
-      <div class="feedback" id="blankFeedback"></div>
-    </div>
-  `;
-
-  const input = document.getElementById("blankInput");
-  const checkBtn = document.getElementById("blankCheckBtn");
-  const feedback = document.getElementById("blankFeedback");
-  input.focus();
-
-  const submit = async () => {
-    const val = input.value.trim();
-    if (!val) return;
-    const exact = val.toLowerCase() === word.english.toLowerCase();
-    const correct = exact || isCloseEnough(val, word.english);
-
-    input.classList.add(correct ? "correct" : "wrong");
-    input.disabled = true;
-    checkBtn.disabled = true;
-    feedback.textContent = correct ? "Correct" : `Not quite — it's "${word.english}"`;
-    feedback.className = "feedback " + (correct ? "correct" : "wrong");
-
-    await updateWordAfterAnswer(word, correct);
-
-    const nextBtn = document.createElement("button");
-    nextBtn.className = "btn btn-accent next-btn";
-    nextBtn.textContent = onNext ? "Next →" : "New sentence →";
-    nextBtn.addEventListener("click", () => {
-      if (onNext) onNext();
-      else loadBlankQuestion(word, onNext);
-    });
-    area.querySelector(".quiz-card").appendChild(nextBtn);
-  };
-
-  checkBtn.addEventListener("click", submit);
-  input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
-}
-
-function renderPracticeDetail(word) {
+// ---------- Word management (Edit / Delete / Ignore) ----------
+// Reached by clicking a word in the Words tab. No quiz of any kind here -
+// just managing the word's text and its inclusion in the daily Quiz.
+function renderWordDetail(word) {
   const ignoreLabel = word.ignored ? "Add back to Quiz rotation" : "I know this — remove from Quiz";
   practicePanel.innerHTML = `
     <div class="practice-detail">
       <span class="back-link" id="backToList">← Back to Words</span>
-      ${word.ignored ? `<div style="font-size:11px; color:var(--ink-faint); margin-bottom:14px;">Excluded from daily Quiz</div>` : ""}
+      <div class="practice-pair" id="pairDisplay">
+        <div class="hy-word">${word.armenian}</div>
+        <div class="en-word">${word.english}</div>
+        ${word.ignored ? `<div style="font-size:11px; color:var(--ink-faint); margin-top:6px;">Excluded from daily Quiz</div>` : ""}
+      </div>
       <div id="editForm" style="display:none;"></div>
-      <div id="blankQuizArea"></div>
       <div class="practice-actions" style="margin-top:24px;">
         <button class="btn btn-ghost" id="editBtn" style="flex:1;">Edit</button>
         <button class="btn btn-ghost" id="deleteBtn" style="flex:1; color:var(--wrong); border-color:var(--wrong-soft);">Delete</button>
@@ -1043,14 +894,12 @@ function renderPracticeDetail(word) {
   document.getElementById("toggleIgnoreBtn").addEventListener("click", async () => {
     const newIgnored = !word.ignored;
     await updateDoc(doc(db, "words", word.id), { ignored: newIgnored });
-    renderPracticeDetail({ ...word, ignored: newIgnored });
+    renderWordDetail({ ...word, ignored: newIgnored });
   });
-
-  loadBlankQuestion(word);
 
   // ---- Edit ----
   document.getElementById("editBtn").addEventListener("click", () => {
-    document.getElementById("blankQuizArea").style.display = "none";
+    document.getElementById("pairDisplay").style.display = "none";
     const formEl = document.getElementById("editForm");
     formEl.style.display = "block";
     formEl.innerHTML = `
@@ -1067,7 +916,7 @@ function renderPracticeDetail(word) {
       </div>
     `;
 
-    document.getElementById("cancelEditBtn").addEventListener("click", () => renderPracticeDetail(word));
+    document.getElementById("cancelEditBtn").addEventListener("click", () => renderWordDetail(word));
 
     document.getElementById("saveEditBtn").addEventListener("click", async () => {
       const newArmenian = document.getElementById("editArmenian").value.trim();
@@ -1094,7 +943,7 @@ function renderPracticeDetail(word) {
       });
 
       const updatedWord = { ...word, armenian: newArmenian, english: newEnglish };
-      renderPracticeDetail(updatedWord);
+      renderWordDetail(updatedWord);
     });
   });
 
@@ -1119,6 +968,7 @@ function renderPracticeDetail(word) {
     });
   });
 }
+
 
 // ---------- Match game ----------
 let matchState = { selectedEn: null, selectedHy: null, matchedIds: new Set(), words: [] };
@@ -1381,6 +1231,7 @@ async function renderWordsPanel() {
       <div class="section-title" style="margin:0;">All words</div>
       <span class="ignore-link" id="selectModeToggle">${selectModeActive ? "Cancel" : "Select"}</span>
     </div>
+    <input type="text" class="search-input" id="wordsSearchInput" placeholder="Search words…" style="margin-bottom:12px;" />
     <div id="bulkActionsBar" style="display:none; margin-bottom:12px;"></div>
     <div class="word-list" id="wordListEl"></div>
   `;
@@ -1415,9 +1266,8 @@ async function renderWordsPanel() {
     } else {
       row.addEventListener("click", () => {
         document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-        document.querySelector('.tab[data-tab="practice"]').classList.add("active");
         Object.entries(panels).forEach(([key, el]) => { el.style.display = key === "practice" ? "block" : "none"; });
-        renderPracticeDetail(w);
+        renderWordDetail(w);
       });
     }
     return row;
@@ -1483,15 +1333,33 @@ async function renderWordsPanel() {
   }
 
   const listEl = document.getElementById("wordListEl");
-  if (words.length === 0) {
-    listEl.innerHTML = `<div class="empty-state"><div class="small">No words yet — they'll show up here once captured or imported.</div></div>`;
-    return;
+
+  function drawFilteredList(filterText = "") {
+    const f = filterText.trim().toLowerCase();
+    const filtered = words.filter(w =>
+      !f || (w.english || "").toLowerCase().includes(f) || (w.armenian || "").includes(f)
+    );
+
+    if (words.length === 0) {
+      listEl.innerHTML = `<div class="empty-state"><div class="small">No words yet — they'll show up here once captured or imported.</div></div>`;
+      return;
+    }
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div class="empty-state"><div class="small">No words match "${filterText}".</div></div>`;
+      return;
+    }
+
+    listEl.innerHTML = "";
+    filtered
+      .sort((a, b) => (a.english || "").localeCompare(b.english || ""))
+      .forEach(w => listEl.appendChild(buildRow(w, selectModeActive)));
   }
 
-  words
-    .sort((a, b) => (a.english || "").localeCompare(b.english || ""))
-    .forEach(w => listEl.appendChild(buildRow(w, selectModeActive)));
+  document.getElementById("wordsSearchInput").addEventListener("input", (e) => {
+    drawFilteredList(e.target.value);
+  });
 
+  drawFilteredList();
   updateBulkActionsBar();
 }
 
@@ -1541,6 +1409,29 @@ document.getElementById("loginPassword").addEventListener("keydown", e => {
 });
 
 document.getElementById("logoutBtn").addEventListener("click", () => signOut(auth));
+
+document.getElementById("refreshBtn").addEventListener("click", async () => {
+  const activeTab = document.querySelector(".tab.active");
+  const target = activeTab ? activeTab.dataset.tab : "quiz";
+
+  await renderStreak();
+
+  if (target === "words") {
+    renderWordsPanel();
+  } else if (target === "import") {
+    renderImportPanel();
+  } else if (target === "match") {
+    renderMatchGame();
+  } else {
+    // Quiz tab (or no specific tab active, e.g. viewing a single word's detail)
+    allWords = await fetchAllWords();
+    if (allWords.length === 0) {
+      renderEmptyState(quizPanel, "No words yet", "Translate something English → Armenian on translate.google.com with the extension installed, or paste your phone history in the Import tab.");
+    } else {
+      renderQuizModePicker();
+    }
+  }
+});
 </script>
 </body>
 </html>
