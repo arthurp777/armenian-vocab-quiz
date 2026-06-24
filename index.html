@@ -569,6 +569,10 @@ const MAX_QUIZ_SESSION_SIZE = 15;
 // Quiz direction mode, chosen from the sub-menu before a session starts.
 // "mixed" re-rolls per question; "en-to-hy" and "hy-to-en" stay fixed for the whole session.
 let quizDirectionMode = null;
+// Question FORMAT mode: "typing-only" forces a text input every time, no exceptions.
+// "format-mixed" (the default for hy-to-en/mixed direction) randomly includes
+// multiple choice too, same as before.
+let quizFormatMode = "format-mixed";
 
 function resolveQuizDirection() {
   if (quizDirectionMode === "en-to-hy") return "en-to-hy";
@@ -617,7 +621,10 @@ function renderQuizModePicker() {
           English → Armenian<br><span style="font-size:12px; color:var(--ink-faint); font-weight:400;">See English, type Armenian</span>
         </button>
         <button class="btn btn-ghost btn-block" id="modeHyToEn" style="text-align:left; padding-left:18px;">
-          Armenian → English<br><span style="font-size:12px; color:var(--ink-faint); font-weight:400;">See Armenian, type English</span>
+          Armenian → English<br><span style="font-size:12px; color:var(--ink-faint); font-weight:400;">See Armenian, type or choose English</span>
+        </button>
+        <button class="btn btn-ghost btn-block" id="modeHyToEnTyping" style="text-align:left; padding-left:18px;">
+          Armenian → English (typing only)<br><span style="font-size:12px; color:var(--ink-faint); font-weight:400;">See Armenian, always type English — no multiple choice</span>
         </button>
         <button class="btn btn-accent btn-block" id="modeMixed" style="text-align:left; padding-left:18px;">
           Mixed<br><span style="font-size:12px; color:rgba(0,0,0,0.6); font-weight:400;">Both directions, picked at random</span>
@@ -625,13 +632,15 @@ function renderQuizModePicker() {
       </div>
     </div>
   `;
-  document.getElementById("modeEnToHy").addEventListener("click", () => startQuizWithMode("en-to-hy"));
-  document.getElementById("modeHyToEn").addEventListener("click", () => startQuizWithMode("hy-to-en"));
-  document.getElementById("modeMixed").addEventListener("click", () => startQuizWithMode("mixed"));
+  document.getElementById("modeEnToHy").addEventListener("click", () => startQuizWithMode("en-to-hy", "format-mixed"));
+  document.getElementById("modeHyToEn").addEventListener("click", () => startQuizWithMode("hy-to-en", "format-mixed"));
+  document.getElementById("modeHyToEnTyping").addEventListener("click", () => startQuizWithMode("hy-to-en", "typing-only"));
+  document.getElementById("modeMixed").addEventListener("click", () => startQuizWithMode("mixed", "format-mixed"));
 }
 
-async function startQuizWithMode(mode) {
-  quizDirectionMode = mode;
+async function startQuizWithMode(directionMode, formatMode) {
+  quizDirectionMode = directionMode;
+  quizFormatMode = formatMode;
   await loadQueue();
   renderQuiz();
 }
@@ -655,15 +664,16 @@ async function renderQuiz() {
   }
 
   const word = dueQueue[currentIndex];
-  // Question type is decided by this word's own box level, not chance:
-  // new/shaky words (box 1-2) get multiple choice first; proven words (box 3+) get typing.
-  // This stays consistent for a given word until it actually levels up.
-  const useTyping = (word.box || 1) >= 3;
 
-  if (useTyping) {
+  if (quizFormatMode === "typing-only") {
     renderTypeStep(word);
   } else {
-    renderChoiceStep(word);
+    // format-mixed: new/shaky words (box 1-2) lean toward multiple choice first;
+    // proven words (box 3+) lean toward typing. Adds variety without ever
+    // overriding an explicit typing-only choice.
+    const useTyping = (word.box || 1) >= 3 || Math.random() < 0.3;
+    if (useTyping) renderTypeStep(word);
+    else renderChoiceStep(word);
   }
 }
 
