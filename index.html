@@ -541,7 +541,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getFirestore, collection, getDocs, doc, addDoc, setDoc, getDoc,
-  updateDoc, deleteDoc, Timestamp
+  updateDoc, deleteDoc, Timestamp, query, where
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut
@@ -561,9 +561,19 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+
+// Every word and meta doc is tagged with the signed-in user's UID, so each
+// account only ever sees and modifies its own data - enforced both here
+// (via query filters) and in Firestore security rules (the real boundary).
+function currentUserId() {
+  return auth.currentUser ? auth.currentUser.uid : null;
+}
 const wordsRef = collection(db, "words");
 
-const META_DOC_ID = "streak_meta";
+function metaDocId() {
+  const uid = currentUserId();
+  return uid ? `streak_meta_${uid}` : null;
+}
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function daysBetween(a, b) {
@@ -573,14 +583,18 @@ function daysBetween(a, b) {
 }
 
 async function getStreakMeta() {
-  const ref = doc(db, "meta", META_DOC_ID);
+  const docId = metaDocId();
+  if (!docId) return { streak: 0, lastCompletedDate: null, history: [] };
+  const ref = doc(db, "meta", docId);
   const snap = await getDoc(ref);
   if (snap.exists()) return snap.data();
   return { streak: 0, lastCompletedDate: null, history: [] };
 }
 
 async function recordSessionComplete() {
-  const ref = doc(db, "meta", META_DOC_ID);
+  const docId = metaDocId();
+  if (!docId) return { streak: 0, lastCompletedDate: null, history: [] };
+  const ref = doc(db, "meta", docId);
   const meta = await getStreakMeta();
   const today = todayStr();
   if (meta.lastCompletedDate === today) return meta;
@@ -593,7 +607,7 @@ async function recordSessionComplete() {
     else newStreak = 1;
   }
   const history = (meta.history || []).concat([today]).slice(-30);
-  const updated = { streak: newStreak, lastCompletedDate: today, history };
+  const updated = { streak: newStreak, lastCompletedDate: today, history, userId: currentUserId() };
   await setDoc(ref, updated, { merge: true });
   return updated;
 }
@@ -611,7 +625,10 @@ function isDue(word) {
 }
 
 async function fetchAllWords() {
-  const snap = await getDocs(wordsRef);
+  const uid = currentUserId();
+  if (!uid) return [];
+  const q = query(wordsRef, where("userId", "==", uid));
+  const snap = await getDocs(q);
   const list = [];
   snap.forEach(d => list.push({ id: d.id, ...d.data() }));
   return list;
@@ -1466,7 +1483,8 @@ async function importPairs(pairs) {
     const now = Timestamp.fromDate(new Date());
     await addDoc(wordsRef, {
       english: normalizedEnglish, english_lower: key, armenian: pair.armenian,
-      box: 1, correctStreak: 0, lastReviewed: null, nextReview: now, createdAt: now
+      box: 1, correctStreak: 0, lastReviewed: null, nextReview: now, createdAt: now,
+      userId: currentUserId()
     });
     added++;
   }
