@@ -794,6 +794,7 @@ function renderTypeStep(word) {
       <div class="progress-label">Word ${currentIndex + 1} of ${dueQueue.length}</div>
       <div class="subtitle-word" style="${promptFont}">${promptWord}</div>
       <div class="subtitle-direction">${directionLabel}</div>
+      ${direction === "en-to-hy" ? `<div id="quizPronBlock" class="pron-row" style="margin-top:10px;"></div>` : ""}
       <div id="answerArea" style="width:100%;"></div>
       <div class="feedback" id="feedback"></div>
       ${renderIgnoreButtonHtml()}
@@ -801,6 +802,34 @@ function renderTypeStep(word) {
   `;
   wireTypingQuestion(word, document.getElementById("answerArea"), document.getElementById("feedback"), advanceSession, direction);
   wireIgnoreButton(word);
+
+  if (direction === "en-to-hy") loadQuizPronunciation(word.english);
+}
+
+// Lightweight version of loadPronunciation for the quiz: just the speaker + IPA,
+// no definition, so it doesn't crowd the question itself.
+async function loadQuizPronunciation(english) {
+  const block = document.getElementById("quizPronBlock");
+  if (!block) return;
+  const data = await fetchPronunciation(english);
+
+  if (!data) {
+    block.innerHTML = `<button class="pron-speaker" id="quizSpeakBtn" title="Play pronunciation">🔊</button>`;
+  } else {
+    block.innerHTML = `
+      <button class="pron-speaker" id="quizSpeakBtn" title="Play pronunciation">🔊</button>
+      ${data.ipa ? `<span class="pron-ipa">${data.ipa}</span>` : ""}
+    `;
+  }
+
+  document.getElementById("quizSpeakBtn").addEventListener("click", () => {
+    if (data?.audioUrl) {
+      const audio = new Audio(data.audioUrl.startsWith("http") ? data.audioUrl : `https:${data.audioUrl}`);
+      audio.play().catch(() => speakWithBrowserTTS(english));
+    } else {
+      speakWithBrowserTTS(english);
+    }
+  });
 }
 
 // Multiple choice for new/shaky words - recognition is easier than recall,
@@ -825,11 +854,14 @@ function renderChoiceStep(word) {
       <div class="progress-label">Word ${currentIndex + 1} of ${dueQueue.length}</div>
       <div class="subtitle-word" style="${promptFont}">${promptWord}</div>
       <div class="subtitle-direction">${directionLabel}</div>
+      ${direction === "en-to-hy" ? `<div id="quizPronBlock" class="pron-row" style="margin-top:10px;"></div>` : ""}
       <div class="mc-grid" id="choiceGrid" style="${answerFont}"></div>
       <div class="feedback" id="feedback"></div>
       ${renderIgnoreButtonHtml()}
     </div>
   `;
+
+  if (direction === "en-to-hy") loadQuizPronunciation(word.english);
 
   const grid = document.getElementById("choiceGrid");
   const feedback = document.getElementById("feedback");
