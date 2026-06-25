@@ -64,12 +64,48 @@
 
   .episode-strip {
     display: flex;
-    gap: 3px;
-    margin: 18px 0 32px;
+    gap: 8px;
+    margin: 20px 0 32px;
   }
-  .ep-mark { flex: 1; height: 3px; background: var(--line); border-radius: 2px; }
-  .ep-mark.done { background: var(--accent); }
-  .ep-mark.today { background: var(--accent-soft); border: 1px solid var(--accent); height: 2px; }
+  .ep-day {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .ep-mark {
+    width: 100%;
+    height: 8px;
+    background: var(--surface);
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    transition: all 0.2s ease;
+  }
+  .ep-mark.done {
+    background: linear-gradient(135deg, var(--accent), #f0c674);
+    border-color: var(--accent);
+    box-shadow: 0 0 10px -2px var(--accent);
+  }
+  .ep-mark.today {
+    background: var(--surface);
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    animation: pulse-today 2s ease-in-out infinite;
+  }
+  @keyframes pulse-today {
+    0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); }
+    50% { box-shadow: 0 0 0 5px var(--accent-soft); }
+  }
+  .ep-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .ep-day.done .ep-label { color: var(--accent); }
+  .ep-day.today .ep-label { color: var(--ink); }
 
   /* ---------- Tabs ---------- */
   .tabs {
@@ -286,6 +322,54 @@
     font-size: 30px; font-weight: 600; color: var(--ink); margin-bottom: 4px;
   }
   .practice-pair .en-word { font-size: 15px; color: var(--ink-faint); font-weight: 500; }
+
+  .pronunciation-block {
+    text-align: center;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .pron-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+  .pron-speaker {
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    width: 38px;
+    height: 38px;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s ease;
+  }
+  .pron-speaker:hover { border-color: var(--accent); }
+  .pron-ipa {
+    font-size: 15px;
+    color: var(--ink-soft);
+    font-style: italic;
+    font-family: 'Inter', sans-serif;
+  }
+  .pron-definition {
+    margin-top: 12px;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+    text-align: left;
+  }
+  .pron-pos {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin-right: 6px;
+  }
 
   .sentence-block {
     border-top: 1px solid var(--line);
@@ -552,15 +636,31 @@ async function renderStreak() {
   strip.innerHTML = "";
   const history = meta.history || [];
   const today = todayStr();
+  const dayLetters = ["S", "M", "T", "W", "T", "F", "S"];
+
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const ds = d.toISOString().slice(0, 10);
+
+    const dayWrap = document.createElement("div");
+    dayWrap.className = "ep-day";
+
     const mark = document.createElement("div");
     mark.className = "ep-mark";
-    if (history.includes(ds)) mark.classList.add("done");
-    else if (ds === today) mark.classList.add("today");
-    strip.appendChild(mark);
+
+    const isDone = history.includes(ds);
+    const isToday = ds === today;
+    if (isDone) { mark.classList.add("done"); dayWrap.classList.add("done"); }
+    else if (isToday) { mark.classList.add("today"); dayWrap.classList.add("today"); }
+
+    const label = document.createElement("div");
+    label.className = "ep-label";
+    label.textContent = dayLetters[d.getDay()];
+
+    dayWrap.appendChild(mark);
+    dayWrap.appendChild(label);
+    strip.appendChild(dayWrap);
   }
 }
 
@@ -874,6 +974,94 @@ function wireTypingQuestion(word, answerArea, feedback, onNext, direction = "hy-
 // ---------- Word management (Edit / Delete / Ignore) ----------
 // Reached by clicking a word in the Words tab. No quiz of any kind here -
 // just managing the word's text and its inclusion in the daily Quiz.
+// ---------- Pronunciation (free dictionary API + browser text-to-speech) ----------
+// dictionaryapi.dev is free, keyless, and returns IPA phonetics, audio clips,
+// and definitions in one call. Results are stable, so they're cached in memory
+// to avoid repeat lookups for the same word in one session.
+const pronunciationCache = new Map();
+
+function speakWithBrowserTTS(text) {
+  if (!("speechSynthesis" in window)) return false;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "en-US";
+  utterance.rate = 0.9;
+  window.speechSynthesis.cancel(); // stop any previous utterance before speaking again
+  window.speechSynthesis.speak(utterance);
+  return true;
+}
+
+async function fetchPronunciation(english) {
+  if (pronunciationCache.has(english)) return pronunciationCache.get(english);
+
+  try {
+    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(english)}`);
+    if (!res.ok) {
+      pronunciationCache.set(english, null);
+      return null;
+    }
+    const data = await res.json();
+    const entry = Array.isArray(data) ? data[0] : null;
+    if (!entry) {
+      pronunciationCache.set(english, null);
+      return null;
+    }
+
+    const ipa = entry.phonetic || entry.phonetics?.find(p => p.text)?.text || null;
+    const audioUrl = entry.phonetics?.find(p => p.audio)?.audio || null;
+    const firstMeaning = entry.meanings?.[0];
+    const definition = firstMeaning?.definitions?.[0]?.definition || null;
+    const partOfSpeech = firstMeaning?.partOfSpeech || null;
+
+    const result = { ipa, audioUrl, definition, partOfSpeech };
+    pronunciationCache.set(english, result);
+    return result;
+  } catch (err) {
+    console.error("[Pronunciation] Lookup failed:", err);
+    pronunciationCache.set(english, null);
+    return null;
+  }
+}
+
+async function loadPronunciation(english) {
+  const block = document.getElementById("pronunciationBlock");
+  if (!block) return;
+
+  const data = await fetchPronunciation(english);
+
+  if (!data) {
+    block.innerHTML = `
+      <div class="pron-row">
+        <button class="pron-speaker" id="speakBtn" title="Play pronunciation">🔊</button>
+        <span class="pron-ipa" style="color:var(--ink-faint); font-style:normal;">No dictionary entry found — using device voice only</span>
+      </div>
+    `;
+    document.getElementById("speakBtn").addEventListener("click", () => speakWithBrowserTTS(english));
+    return;
+  }
+
+  block.innerHTML = `
+    <div class="pron-row">
+      <button class="pron-speaker" id="speakBtn" title="Play pronunciation">🔊</button>
+      ${data.ipa ? `<span class="pron-ipa">${data.ipa}</span>` : ""}
+    </div>
+    ${data.definition ? `
+      <div class="pron-definition">
+        ${data.partOfSpeech ? `<span class="pron-pos">${data.partOfSpeech}</span>` : ""}
+        ${data.definition}
+      </div>
+    ` : ""}
+  `;
+
+  document.getElementById("speakBtn").addEventListener("click", () => {
+    if (data.audioUrl) {
+      const audio = new Audio(data.audioUrl.startsWith("http") ? data.audioUrl : `https:${data.audioUrl}`);
+      audio.play().catch(() => speakWithBrowserTTS(english)); // fall back to TTS if playback fails
+    } else {
+      speakWithBrowserTTS(english);
+    }
+  });
+}
+
 function renderWordDetail(word) {
   const ignoreLabel = word.ignored ? "Add back to Quiz rotation" : "I know this — remove from Quiz";
   practicePanel.innerHTML = `
@@ -884,6 +1072,9 @@ function renderWordDetail(word) {
         <div class="en-word">${word.english}</div>
         ${word.ignored ? `<div style="font-size:11px; color:var(--ink-faint); margin-top:6px;">Excluded from daily Quiz</div>` : ""}
       </div>
+      <div class="pronunciation-block" id="pronunciationBlock">
+        <div class="sentence-loading">Looking up pronunciation…</div>
+      </div>
       <div id="editForm" style="display:none;"></div>
       <div class="practice-actions" style="margin-top:24px;">
         <button class="btn btn-ghost" id="editBtn" style="flex:1;">Edit</button>
@@ -893,6 +1084,8 @@ function renderWordDetail(word) {
       <div id="deleteConfirm" style="display:none; margin-top:12px;"></div>
     </div>
   `;
+
+  loadPronunciation(word.english);
 
   document.getElementById("backToList").addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
