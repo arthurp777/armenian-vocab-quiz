@@ -62,24 +62,73 @@
   }
   .streak-line .count { color: var(--accent); font-weight: 700; }
 
-  .episode-strip {
-    display: flex;
-    gap: 8px;
-    margin: 20px 0 32px;
+  .header-btn {
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-faint);
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.15s ease;
   }
-  .ep-day {
-    flex: 1;
+  .header-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .streak-hero {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
+    margin: 8px 0 26px;
+  }
+  .streak-flame { font-size: 40px; line-height: 1; }
+  .streak-flame.cold { filter: grayscale(1) opacity(0.4); }
+  .streak-hero .big-num {
+    font-family: 'Source Serif 4', serif;
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.1;
+  }
+  .streak-hero .big-label {
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .episode-strip {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin: 0 0 32px;
+  }
+  .ep-day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+  }
+  .ep-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
   }
   .ep-mark {
-    width: 100%;
-    height: 8px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
     background: var(--surface);
-    border-radius: 999px;
-    border: 1px solid var(--line);
+    border: 1.5px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
     transition: all 0.2s ease;
   }
   .ep-mark.done {
@@ -88,7 +137,6 @@
     box-shadow: 0 0 10px -2px var(--accent);
   }
   .ep-mark.today {
-    background: var(--surface);
     border: 1.5px solid var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
     animation: pulse-today 2s ease-in-out infinite;
@@ -96,13 +144,6 @@
   @keyframes pulse-today {
     0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); }
     50% { box-shadow: 0 0 0 5px var(--accent-soft); }
-  }
-  .ep-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--ink-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
   }
   .ep-day.done .ep-label { color: var(--accent); }
   .ep-day.today .ep-label { color: var(--ink); }
@@ -247,6 +288,10 @@
   .stats-row { display: flex; gap: 1px; margin-bottom: 28px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
   .stat-card { flex: 1; padding: 16px 8px; text-align: center; background: var(--surface); }
   .stat-card + .stat-card { border-left: 1px solid var(--line); }
+  .stat-card.clickable { cursor: pointer; transition: background 0.15s ease; }
+  .stat-card.clickable:hover { background: var(--surface); filter: brightness(1.15); }
+  .stat-card.active-filter { background: var(--accent-soft); }
+  .stat-card.active-filter .num { color: var(--accent); }
   .stat-card .num {
     font-family: 'Source Serif 4', serif;
     font-size: 26px; font-weight: 700; color: var(--ink);
@@ -463,13 +508,18 @@
   <div id="mainApp" style="display:none;">
     <div class="header">
       <div class="logo">reruns</div>
-      <div style="display:flex; align-items:center; gap:14px;">
+      <div style="display:flex; align-items:center; gap:10px;">
         <div class="streak-line"><span class="count" id="streakCount">0</span> day series</div>
-        <span id="refreshBtn" title="Refresh" style="font-size:13px; color:var(--ink-faint); cursor:pointer; font-weight:600;">↻ Refresh</span>
-        <span id="logoutBtn" style="font-size:12px; color:var(--ink-faint); cursor:pointer; font-weight:600;">Sign out</span>
+        <button class="header-btn" id="refreshBtn" title="Refresh">↻ Refresh</button>
+        <button class="header-btn" id="logoutBtn">Sign out</button>
       </div>
     </div>
 
+    <div class="streak-hero" id="streakHero">
+      <div class="streak-flame" id="streakFlameIcon">🔥</div>
+      <div class="big-num" id="streakBigNum">0</div>
+      <div class="big-label">day streak</div>
+    </div>
     <div class="episode-strip" id="episodeStrip"></div>
 
     <div class="tabs">
@@ -631,11 +681,21 @@ document.querySelectorAll(".tab").forEach(tab => {
 
 async function renderStreak() {
   const meta = await getStreakMeta();
-  document.getElementById("streakCount").textContent = meta.streak || 0;
+  const streakNum = meta.streak || 0;
+  document.getElementById("streakCount").textContent = streakNum;
+  document.getElementById("streakBigNum").textContent = streakNum;
+
+  // Flame is "lit" (full color) only if today is already part of the streak;
+  // greyed out if the streak exists but today's session hasn't happened yet,
+  // matching the Duolingo convention of a cold flame until you've practiced today.
+  const today = todayStr();
+  const history = meta.history || [];
+  const flameIcon = document.getElementById("streakFlameIcon");
+  const practicedToday = history.includes(today);
+  flameIcon.classList.toggle("cold", streakNum === 0 || !practicedToday);
+
   const strip = document.getElementById("episodeStrip");
   strip.innerHTML = "";
-  const history = meta.history || [];
-  const today = todayStr();
   const dayLetters = ["S", "M", "T", "W", "T", "F", "S"];
 
   for (let i = 6; i >= 0; i--) {
@@ -651,7 +711,7 @@ async function renderStreak() {
 
     const isDone = history.includes(ds);
     const isToday = ds === today;
-    if (isDone) { mark.classList.add("done"); dayWrap.classList.add("done"); }
+    if (isDone) { mark.classList.add("done"); dayWrap.classList.add("done"); mark.textContent = "✓"; }
     else if (isToday) { mark.classList.add("today"); dayWrap.classList.add("today"); }
 
     const label = document.createElement("div");
@@ -1453,11 +1513,12 @@ async function renderWordsPanel() {
 
   wordsPanel.innerHTML = `
     <div class="stats-row">
-      <div class="stat-card"><div class="num">${words.length}</div><div class="label">Total</div></div>
-      <div class="stat-card"><div class="num">${dueCount}</div><div class="label">Due now</div></div>
-      <div class="stat-card"><div class="num">${mastered}</div><div class="label">Mastered</div></div>
-      <div class="stat-card"><div class="num">${leeches.length}</div><div class="label">Struggling</div></div>
+      <div class="stat-card clickable" id="statTotal"><div class="num">${words.length}</div><div class="label">Total</div></div>
+      <div class="stat-card clickable" id="statDue"><div class="num">${dueCount}</div><div class="label">Due now</div></div>
+      <div class="stat-card clickable" id="statMastered"><div class="num">${mastered}</div><div class="label">Mastered</div></div>
+      <div class="stat-card clickable" id="statStruggling"><div class="num">${leeches.length}</div><div class="label">Struggling</div></div>
     </div>
+    <div id="activeFilterBar" style="display:none; margin-bottom:14px;"></div>
     ${leeches.length > 0 ? `
       <div class="section-title">Struggling words</div>
       <div class="word-list" id="leechListEl" style="margin-bottom:28px;"></div>
@@ -1568,11 +1629,40 @@ async function renderWordsPanel() {
   }
 
   const listEl = document.getElementById("wordListEl");
+  let activeStatFilter = null; // null | "due" | "mastered" | "struggling"
+
+  function matchesStatFilter(w) {
+    if (!activeStatFilter) return true;
+    if (activeStatFilter === "due") return isDue(w);
+    if (activeStatFilter === "mastered") return (w.box || 1) >= 5;
+    if (activeStatFilter === "struggling") return isLeech(w);
+    return true;
+  }
+
+  function updateFilterBar() {
+    const bar = document.getElementById("activeFilterBar");
+    if (!activeStatFilter) { bar.style.display = "none"; return; }
+    const labels = { due: "Due now", mastered: "Mastered", struggling: "Struggling" };
+    bar.style.display = "flex";
+    bar.style.alignItems = "center";
+    bar.style.gap = "8px";
+    bar.innerHTML = `
+      <span style="font-size:12.5px; color:var(--ink-soft);">Showing: <strong style="color:var(--accent);">${labels[activeStatFilter]}</strong></span>
+      <span class="ignore-link" id="clearStatFilter">Clear</span>
+    `;
+    document.getElementById("clearStatFilter").addEventListener("click", () => {
+      activeStatFilter = null;
+      document.querySelectorAll(".stat-card").forEach(c => c.classList.remove("active-filter"));
+      updateFilterBar();
+      drawFilteredList(document.getElementById("wordsSearchInput").value);
+    });
+  }
 
   function drawFilteredList(filterText = "") {
     const f = filterText.trim().toLowerCase();
     const filtered = words.filter(w =>
-      !f || (w.english || "").toLowerCase().includes(f) || (w.armenian || "").includes(f)
+      matchesStatFilter(w) &&
+      (!f || (w.english || "").toLowerCase().includes(f) || (w.armenian || "").includes(f))
     );
 
     if (words.length === 0) {
@@ -1580,7 +1670,7 @@ async function renderWordsPanel() {
       return;
     }
     if (filtered.length === 0) {
-      listEl.innerHTML = `<div class="empty-state"><div class="small">No words match "${filterText}".</div></div>`;
+      listEl.innerHTML = `<div class="empty-state"><div class="small">No words match${f ? ` "${filterText}"` : " this filter"}.</div></div>`;
       return;
     }
 
@@ -1589,6 +1679,19 @@ async function renderWordsPanel() {
       .sort((a, b) => (a.english || "").localeCompare(b.english || ""))
       .forEach(w => listEl.appendChild(buildRow(w, selectModeActive)));
   }
+
+  function applyStatFilter(filterKey, cardId) {
+    activeStatFilter = activeStatFilter === filterKey ? null : filterKey; // clicking the same card again clears it
+    document.querySelectorAll(".stat-card").forEach(c => c.classList.remove("active-filter"));
+    if (activeStatFilter) document.getElementById(cardId).classList.add("active-filter");
+    updateFilterBar();
+    drawFilteredList(document.getElementById("wordsSearchInput").value);
+  }
+
+  document.getElementById("statTotal").addEventListener("click", () => applyStatFilter(null, "statTotal"));
+  document.getElementById("statDue").addEventListener("click", () => applyStatFilter("due", "statDue"));
+  document.getElementById("statMastered").addEventListener("click", () => applyStatFilter("mastered", "statMastered"));
+  document.getElementById("statStruggling").addEventListener("click", () => applyStatFilter("struggling", "statStruggling"));
 
   document.getElementById("wordsSearchInput").addEventListener("input", (e) => {
     drawFilteredList(e.target.value);
